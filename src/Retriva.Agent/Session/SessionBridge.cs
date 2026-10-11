@@ -33,6 +33,7 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
 
     public bool ClientConnected => _pipe?.IsConnected == true;
     public string? WindowsUser { get; private set; }
+    public string? UserDocumentsDirectory { get; private set; }
     public string? StudentNim { get; private set; }
     public string? StudentName { get; private set; }
 
@@ -52,6 +53,7 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
 
     /// <summary>Balasan klien atas perintah, diteruskan agent ke konsol.</summary>
     public event Action<ClientAck>? AckReceived;
+    public event Action<ClientHello>? ClientHelloReceived;
 
     // Nama event sengaja dibedakan dari nama record. Bila sama, "case StudentSignedOut:"
     // di dalam switch akan dibaca compiler sebagai pola konstanta yang menunjuk field
@@ -146,6 +148,7 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
             finally
             {
                 WindowsUser = null;
+                UserDocumentsDirectory = null;
                 StudentNim = null;
 
                 // Angka siaran dinolkan bersama klien yang pergi. Dibiarkan,
@@ -218,8 +221,10 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
             {
                 case ClientHello hello:
                     WindowsUser = hello.WindowsUser;
-                    log.LogInformation("Klien sesi {Session} milik {User} (versi {Version})",
-                        hello.SessionId, hello.WindowsUser, hello.ClientVersion);
+                    UserDocumentsDirectory = hello.DocumentsDirectory;
+                    log.LogInformation("Klien sesi {Session} milik {User} (versi {Version}, docs: {Docs})",
+                        hello.SessionId, hello.WindowsUser, hello.ClientVersion, hello.DocumentsDirectory ?? "(bawaan)");
+                    ClientHelloReceived?.Invoke(hello);
                     break;
 
                 case ClientAck ack:

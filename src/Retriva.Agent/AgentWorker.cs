@@ -45,6 +45,8 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     /// dari mode pengguna, jadi mahasiswa masih bisa menutup klien lewat Task
     /// Manager. Yang bisa dilakukan bukan mencegah, melainkan melaporkannya.</summary>
     private bool _lockActive;
+    private string? _lockMessage;
+    private string? _lockIssuer;
 
     /// <summary>
     /// Frame terakhir sebelum layar dikunci.
@@ -125,9 +127,18 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         {
             // Diselesaikan SEKALI di sini, lalu dipakai kedua sisi. Menyelesaikan
             // ulang di klien berarti dua rumus yang harus tetap sama selamanya.
-            FileInbox = FileDownloader.ResolveInbox(_config.FileInboxDirectory, log),
+            FileInbox = FileDownloader.ResolveInbox(_config.FileInboxDirectory, null, log),
         };
         _session.AckReceived += OnClientAck;
+        _session.ClientHelloReceived += hello =>
+        {
+            if (!string.IsNullOrWhiteSpace(hello.DocumentsDirectory))
+            {
+                var resolved = FileDownloader.ResolveInbox(_config.FileInboxDirectory, hello.DocumentsDirectory, log);
+                _session.FileInbox = resolved;
+                log.LogInformation("Folder berkas mahasiswa diperbarui: {Dir}", resolved);
+            }
+        };
 
         // Diteruskan sebagai laporan tanpa perintah, karena memang tidak ada
         // perintah yang memicunya. Tanpa ini panel admin akan terus menampilkan
@@ -198,15 +209,37 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         {
             log.LogInformation("Klien sesi {State}", connected ? "tersambung" : "terputus");
 
-            if (!connected && _lockActive)
+            if (!connected)
             {
-                _lockActive = false;
-                log.LogWarning("Klien menghilang saat layar terkunci — kemungkinan ditutup paksa");
-                ReportToConsole(CommandOutcome.Failed,
-                    "klien ditutup saat layar terkunci — kemungkinan lewat Task Manager");
+                if (_lockActive)
+                {
+                    log.LogWarning("Klien menghilang saat layar terkunci — kemungkinan ditutup paksa. Memanggil watchdog untuk meluncurkan ulang.");
+                    ReportToConsole(CommandOutcome.Failed,
+                        "klien ditutup saat layar terkunci — memicu peluncuran ulang (watchdog)");
+                }
+
+                // Otomatis luncurkan ulang jika klien mati/di-kill
+                _ = Task.Run(() => ClientLauncher.EnsureRunning(log));
+            }
+            else
+            {
+                if (_lockActive)
+                {
+                    log.LogInformation("Klien tersambung kembali saat status terkunci aktif — mengirim ulang perintah kunci layar.");
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(500);
+                        await _session.SendAsync(new ShowLockScreen
+                        {
+                            Message = _lockMessage ?? "Layar dikunci oleh Admin",
+                            IssuedBy = _lockIssuer ?? "Admin",
+                        });
+                    });
+                }
             }
         };
         _session.Start(_unitId, () => _connection?.State == HubConnectionState.Connected);
+        _ = Task.Run(() => ClientLauncher.EnsureRunning(log));
 
         if (string.IsNullOrWhiteSpace(_config.ConsoleCertificateThumbprint))
         {
@@ -465,6 +498,11 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         {
             if (_connection.State == HubConnectionState.Connected)
             {
+                if (!_session.ClientConnected)
+                {
+                    ClientLauncher.EnsureRunning(log);
+                }
+
                 try
                 {
                     await _connection.SendAsync("Heartbeat", new HeartbeatReport
@@ -672,12 +710,20 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             {
                 var sent = await _session.SendAsync(new ShowLockScreen
                 {
+                    CommandId = command.CommandId,
                     Message = c.Message,
                     IssuedBy = c.IssuedBy,
                 });
                 log.LogInformation("Kunci diteruskan ke klien: {Sent} (klien tersambung: {Connected})",
                     sent, _session.ClientConnected);
-                if (sent) { _lockActive = true; RememberAwaitingAck(command.CommandId); return; }
+                if (sent)
+                {
+                    _lockActive = true;
+                    _lockMessage = c.Message;
+                    _lockIssuer = c.IssuedBy;
+                    RememberAwaitingAck(command.CommandId);
+                    return;
+                }
                 outcome = CommandOutcome.Failed;
                 detail = "RetrivaClient tidak berjalan di sesi pengguna";
                 break;
@@ -685,8 +731,18 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case UnlockScreenCommand:
             {
-                var sent = await _session.SendAsync(new HideLockScreen());
-                if (sent) { _lockActive = false; RememberAwaitingAck(command.CommandId); return; }
+                var sent = await _session.SendAsync(new HideLockScreen
+                {
+                    CommandId = command.CommandId,
+                });
+                if (sent)
+                {
+                    _lockActive = false;
+                    _lockMessage = null;
+                    _lockIssuer = null;
+                    RememberAwaitingAck(command.CommandId);
+                    return;
+                }
                 outcome = CommandOutcome.Failed;
                 detail = "RetrivaClient tidak berjalan di sesi pengguna";
                 break;
@@ -699,6 +755,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 // melewati agent — merelaynya akan menggandakan beban tanpa guna.
                 var sent = await _session.SendAsync(new ShowBroadcast
                 {
+                    CommandId = command.CommandId,
                     MulticastGroup = c.MulticastGroup,
                     Port = c.Port,
                     SourceLabel = c.SourceLabel,
@@ -718,6 +775,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             {
                 var sent = await _session.SendAsync(new BeginExamWatch
                 {
+                    CommandId = command.CommandId,
                     SessionId = c.SessionId,
                     Title = c.Title,
                 });
@@ -735,7 +793,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case EndExamCommand:
             {
-                var sent = await _session.SendAsync(new EndExamWatch());
+                var sent = await _session.SendAsync(new EndExamWatch
+                {
+                    CommandId = command.CommandId,
+                });
                 log.LogInformation("Akhir sesi ujian diteruskan ke klien: {Sent}", sent);
                 if (sent) { RememberAwaitingAck(command.CommandId); return; }
 
@@ -754,6 +815,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 // piksel pun dari layar mahasiswa.
                 var sent = await _session.SendAsync(new BeginPresenting
                 {
+                    CommandId = command.CommandId,
                     RelayHost = c.RelayHost,
                     RelayPort = c.RelayPort,
                     Width = c.Width,
@@ -774,7 +836,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case StopPresentingCommand:
             {
-                var sent = await _session.SendAsync(new EndPresenting());
+                var sent = await _session.SendAsync(new EndPresenting
+                {
+                    CommandId = command.CommandId,
+                });
                 if (sent) { RememberAwaitingAck(command.CommandId); return; }
 
                 outcome = CommandOutcome.Failed;
@@ -784,7 +849,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case StopBroadcastCommand:
             {
-                var sent = await _session.SendAsync(new HideBroadcast());
+                var sent = await _session.SendAsync(new HideBroadcast
+                {
+                    CommandId = command.CommandId,
+                });
                 outcome = sent ? CommandOutcome.Success : CommandOutcome.Failed;
                 detail = sent ? "penonton ditutup" : "RetrivaClient tidak berjalan";
                 break;
@@ -801,6 +869,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
                 var sent = await _session.SendAsync(new BeginRemoteSession
                 {
+                    CommandId = command.CommandId,
                     AdminHost = _consoleHost,
                     Port = FramePacket.RemoteControlPort,
                     FrameRate = c.FrameRate,
@@ -826,7 +895,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case EndRemoteCommand:
             {
-                var sent = await _session.SendAsync(new EndRemoteSession());
+                var sent = await _session.SendAsync(new EndRemoteSession
+                {
+                    CommandId = command.CommandId,
+                });
                 if (sent) { RememberAwaitingAck(command.CommandId); return; }
                 outcome = CommandOutcome.Failed;
                 detail = "RetrivaClient tidak berjalan";
@@ -837,6 +909,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             {
                 var sent = await _session.SendAsync(new DeliverChat
                 {
+                    CommandId = command.CommandId,
                     Text = c.Text,
                     FromDisplayName = c.FromDisplayName,
                     ToEveryone = c.ToEveryone,
@@ -848,7 +921,11 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case AcknowledgeHelpCommand c:
             {
-                var sent = await _session.SendAsync(new HelpAcknowledged { By = c.IssuedBy });
+                var sent = await _session.SendAsync(new HelpAcknowledged
+                {
+                    CommandId = command.CommandId,
+                    By = c.IssuedBy,
+                });
                 outcome = sent ? CommandOutcome.Success : CommandOutcome.Failed;
                 detail = sent ? "permintaan bantuan ditandai ditangani" : "RetrivaClient tidak berjalan";
                 break;
@@ -868,7 +945,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             case ClearChatCommand:
             {
-                var sent = await _session.SendAsync(new ClearChat());
+                var sent = await _session.SendAsync(new ClearChat
+                {
+                    CommandId = command.CommandId,
+                });
                 outcome = sent ? CommandOutcome.Success : CommandOutcome.Failed;
                 detail = sent ? "percakapan dikosongkan" : "RetrivaClient tidak berjalan";
                 break;
@@ -884,6 +964,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 // akan menenggelamkan jalur yang dipakai perintah sungguhan.
                 await _session.SendAsync(new InjectInput
                 {
+                    CommandId = command.CommandId,
                     Kind = MapInputKind(c.Kind),
                     X = c.X,
                     Y = c.Y,
@@ -922,9 +1003,12 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     /// Perintah yang dieksekusi klien dibalas belakangan, bukan seketika.
     /// Pemetaan ini menjaga agar balasan ke konsol memakai CommandId asli.
     /// </summary>
-    private void RememberAwaitingAck(Guid consoleCommandId)
+    private void RememberAwaitingAck(Guid consoleCommandId) =>
+        RememberAwaitingAck(consoleCommandId, consoleCommandId);
+
+    private void RememberAwaitingAck(Guid clientCommandId, Guid consoleCommandId)
     {
-        lock (_awaitingClientAck) _awaitingClientAck[consoleCommandId] = consoleCommandId;
+        lock (_awaitingClientAck) _awaitingClientAck[clientCommandId] = consoleCommandId;
     }
 
     /// <summary>
@@ -937,7 +1021,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     /// </summary>
     private async Task ReceiveFileAsync(PushFileCommand command)
     {
-        var downloader = new FileDownloader(_config, log);
+        var downloader = new FileDownloader(_config, log, _session.UserDocumentsDirectory);
 
         var lastReport = 0L;
         var lastPercent = -1;
@@ -1013,9 +1097,11 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         Guid consoleCommandId;
         lock (_awaitingClientAck)
         {
-            if (_awaitingClientAck.Count == 0) return;
-            consoleCommandId = _awaitingClientAck.Keys.First();
-            _awaitingClientAck.Remove(consoleCommandId);
+            if (!_awaitingClientAck.Remove(ack.CommandId, out consoleCommandId))
+            {
+                // Pesan bukan perintah yang ditunggu balasannya oleh konsol
+                return;
+            }
         }
 
         if (_connection is not { State: HubConnectionState.Connected }) return;

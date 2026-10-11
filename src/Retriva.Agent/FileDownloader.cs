@@ -19,52 +19,70 @@ public sealed record DownloadResult(bool Success, string Detail, string? SavedPa
 /// kepercayaan kita justru dibangun di atas satu sertifikat yang tidak
 /// ditandatangani siapa-siapa.
 /// </summary>
-public sealed class FileDownloader(AgentConfig config, ILogger log)
+public sealed class FileDownloader(AgentConfig config, ILogger log, string? userDocumentsDir = null)
 {
     /// <summary>
-    /// Folder tujuan berkas yang diterima.
-    ///
-    /// Documents, bukan folder aplikasi. Berkas yang dikirim dosen adalah milik
-    /// mahasiswa dan harus berada di tempat yang ia tahu cara membukanya tanpa
-    /// diberi tahu.
+    /// Folder tujuan bawaan bila tidak ada pengguna interaktif.
+    /// Memakai Public Documents agar dapat dibaca semua pengguna dan tidak terjebak di Session 0 (SYSTEM).
     /// </summary>
-    public static string DefaultInboxDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Retriva");
-
-    /// <summary>
-    /// Folder tujuan yang benar-benar dipakai, menghormati pilihan pemasangan.
-    ///
-    /// Nilai dari konfigurasi diterima hanya bila ia berupa jalur absolut yang
-    /// dapat dibuat. Jalur relatif akan diselesaikan terhadap direktori kerja
-    /// layanan Windows — yaitu C:\Windows\System32 — dan berkas praktikum yang
-    /// mendarat di sana tidak akan pernah ditemukan mahasiswa maupun asisten.
-    /// </summary>
-    public static string ResolveInbox(string? configured, ILogger? log = null)
+    public static string DefaultInboxDir
     {
-        if (string.IsNullOrWhiteSpace(configured)) return DefaultInboxDir;
-
-        try
+        get
         {
-            var full = Path.GetFullPath(configured.Trim());
-            if (!Path.IsPathRooted(full)) throw new ArgumentException("bukan jalur absolut");
+            var commonDocs = Environment.GetFolderPath(Environment.SpecialFolder.CommonDocuments);
+            if (!string.IsNullOrWhiteSpace(commonDocs))
+                return Path.Combine(commonDocs, "Retriva");
 
-            Directory.CreateDirectory(full);
-            return full;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                      or ArgumentException or NotSupportedException)
-        {
-            // Kembali ke folder bawaan dan MENGATAKANNYA. Diam-diam memakai
-            // folder lain berarti asisten mencari berkasnya di tempat yang ia
-            // pilih sendiri saat memasang, dan tidak menemukannya di sana.
-            log?.LogWarning("Folder berkas '{Dir}' tidak dapat dipakai ({Reason}) — memakai {Fallback}",
-                configured, ex.Message, DefaultInboxDir);
-            return DefaultInboxDir;
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Retriva");
         }
     }
 
+    /// <summary>
+    /// Folder tujuan yang benar-benar dipakai: konfigurasi admin > dokumen user mahasiswa > public documents.
+    /// </summary>
+    public static string ResolveInbox(string? configured, string? userDocumentsDir = null, ILogger? log = null)
+    {
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            try
+            {
+                var full = Path.GetFullPath(configured.Trim());
+                if (!Path.IsPathRooted(full)) throw new ArgumentException("bukan jalur absolut");
+
+                Directory.CreateDirectory(full);
+                return full;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                          or ArgumentException or NotSupportedException)
+            {
+                log?.LogWarning("Folder berkas '{Dir}' tidak dapat dipakai ({Reason})", configured, ex.Message);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(userDocumentsDir))
+        {
+            try
+            {
+                var userInbox = Path.Combine(userDocumentsDir, "Retriva");
+                Directory.CreateDirectory(userInbox);
+                return userInbox;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                          or ArgumentException or NotSupportedException)
+            {
+                log?.LogWarning("Folder dokumen mahasiswa '{Dir}' tidak dapat diakses ({Reason})",
+                    userDocumentsDir, ex.Message);
+            }
+        }
+
+        var fallback = DefaultInboxDir;
+        try { Directory.CreateDirectory(fallback); } catch { /* best effort */ }
+        return fallback;
+    }
+
     /// <summary>Folder tujuan menurut konfigurasi agent yang sedang berjalan.</summary>
-    public string InboxDir => ResolveInbox(config.FileInboxDirectory, log);
+    public string InboxDir => ResolveInbox(config.FileInboxDirectory, userDocumentsDir, log);
 
     /// <summary>
     /// <paramref name="onProgress"/> dipanggil dengan jumlah byte yang sudah

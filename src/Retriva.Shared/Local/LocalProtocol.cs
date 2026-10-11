@@ -46,6 +46,8 @@ public sealed record ClientHello : ClientMessage
     public required string WindowsUser { get; init; }
     public required int SessionId { get; init; }
     public required string ClientVersion { get; init; }
+    /// <summary>Folder Documents milik pengguna Windows yang login di sesi ini.</summary>
+    public string? DocumentsDirectory { get; init; }
 }
 
 /// <summary>Balasan atas perintah dari agent, supaya hasilnya bisa diteruskan ke konsol.</summary>

@@ -138,6 +138,7 @@ public sealed class AgentLink : IAsyncDisposable
                     WindowsUser = Environment.UserName,
                     SessionId = Process.GetCurrentProcess().SessionId,
                     ClientVersion = typeof(AgentLink).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                    DocumentsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 });
 
                 /*
