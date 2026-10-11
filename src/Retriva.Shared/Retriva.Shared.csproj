@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    Abstractions saja, BUKAN paket Logging lengkap.
+
+    Retriva.Shared menargetkan net10.0 polos dan dirujuk oleh setiap komponen,
+    termasuk Retriva.Server yang harus tetap bebas dari API khusus Windows.
+    Abstractions hanya berisi antarmuka ILogger dan ILoggerProvider — tanpa
+    penyedia, tanpa konfigurasi, tanpa ketergantungan pada host.
+
+    Menarik Microsoft.Extensions.Logging yang lengkap ke sini akan menyeret
+    seluruh mesin konfigurasi dan DI ke dalam project yang isinya hanya kontrak
+    protokol dan lokasi berkas.
+  -->
+  <ItemGroup>
+    <!-- Rentang 10.0.* menyamai seluruh project lain. Versi tetap di satu
+         project akan menghasilkan peringatan penurunan versi begitu paket
+         Logging di project lain naik. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.*" />
+  </ItemGroup>
+</Project>

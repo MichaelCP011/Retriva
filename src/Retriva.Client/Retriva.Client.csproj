@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      Ikon aplikasi. Tanpa ini, exe memakai ikon bawaan .NET — dan pintasan di
+      Start Menu, bilah tugas, serta entri Add/Remove Programs semuanya
+      menampilkan ikon generik yang tidak terhubung dengan Retriva sama sekali.
+    -->
+    <ApplicationIcon>..\..\assets\retriva.ico</ApplicationIcon>
+
+    <RootNamespace>Retriva.Client</RootNamespace>
+    <AssemblyName>RetrivaClient</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+  <!--
+    Hasil build React dipakai bersama panel admin: satu berkas styles.css,
+    satu proses build, dua halaman (index.html dan client.html).
+
+    Disatukan supaya sistem desainnya tidak bercabang. Kalau klien punya CSS
+    sendiri, satu sisi akan diperbaiki dan sisi lain tertinggal, lalu setahun
+    lagi keduanya terlihat seperti dua aplikasi berbeda yang bernama sama.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\dist\**\*"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Logo dan ikon disalin apa adanya, tidak ditanam sebagai sumber daya,
+       supaya dapat diganti tanpa membangun ulang aplikasi. -->
+  <ItemGroup>
+    <Content Include="..\..\assets\client\**\*"
+             Link="assets\client\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+
+    <!-- Lambang ADMIN ikut disalin, khusus untuk layar terkunci.
+         Layar itu bukan bagian dari aplikasi mahasiswa melainkan wujud perintah
+         yang datang dari panel admin, jadi logonya pun harus logo admin.
+         Hanya berkas ini yang diambil, bukan seluruh folder — ikon aplikasi
+         admin tidak ada urusannya dengan klien. -->
+    <Content Include="..\..\assets\admin\mark.png"
+             Link="assets\admin\mark.png"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+    <ProjectReference Include="..\Retriva.Ui\Retriva.Ui.csproj" />
+    <ProjectReference Include="..\Retriva.Media\Retriva.Media.csproj" />
+  </ItemGroup>
+</Project>

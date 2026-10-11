@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Installer Retriva — penuh, tanpa Inno Setup.
+
+      MENGAPA BUKAN INNO.
+
+      Inno kuat pada mesin pemasangannya, dan sempat dipakai di sini. Yang tidak
+      dapat dilakukannya adalah tampil seperti Retriva: wizardnya bergaya Windows
+      lama dan hanya dapat disesuaikan sedikit.
+
+      Harga pindahnya nyata dan dibayar di sini. Uninstaller, entri Add/Remove
+      Programs, dan pembatalan saat gagal di tengah — tiga hal yang gratis dari
+      Inno — ditulis sendiri di SystemActions.cs, Installer.cs, dan
+      InstallPlan.cs. Yang ketiga paling menentukan, karena di situlah installer
+      buatan sendiri biasanya gagal: bukan saat memasang, melainkan saat gagal
+      memasang.
+
+      Berkas ini juga dapat dijalankan sendiri di PC yang sudah terpasang untuk
+      memeriksa mengapa sebuah unit tidak mau menyambung, tanpa mengubah apa pun.
+      Itu setengah jalan menuju aplikasi swadiagnosa yang direncanakan.
+
+      WinExe, bukan Exe: konsol yang berkelip di depan wizard membuat pemasangan
+      terlihat seperti skrip yang lepas kendali.
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!--
+      Ikon aplikasi. Tanpa ini, exe memakai ikon bawaan .NET — dan pintasan di
+      Start Menu, bilah tugas, serta entri Add/Remove Programs semuanya
+      menampilkan ikon generik yang tidak terhubung dengan Retriva sama sekali.
+    -->
+    <ApplicationIcon>..\..\assets\retriva.ico</ApplicationIcon>
+
+    <RootNamespace>Retriva.Setup</RootNamespace>
+    <AssemblyName>RetrivaSetup</AssemblyName>
+
+    <!--
+      Manifest meminta hak administrator SEBELUM proses berjalan.
+
+      Tanpa ini, pemeriksaan "hak administrator" akan selalu gagal pada
+      pemanggilan pertama dan orangnya harus menutup wizard lalu menjalankannya
+      ulang dengan klik kanan. Meminta lewat manifest membuat Windows yang
+      menampilkan dialognya, sekali, di awal.
+    -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+    <ProjectReference Include="..\Retriva.Ui\Retriva.Ui.csproj" />
+  </ItemGroup>
+
+  <!--
+    Muatan ditanam sebagai resource, sehingga hasilnya SATU berkas mandiri.
+
+    ZIP-nya dibuat build-installer.ps1 dari hasil publish proyek lain, jadi
+    urutannya wajib: publish dulu, bungkus, baru bangun proyek ini.
+
+    Condition="Exists" disengaja. Tanpanya, `dotnet build` biasa akan gagal di
+    mesin yang belum pernah menjalankan skrip build — dan orang yang hanya ingin
+    mengompilasi solusi tidak seharusnya dipaksa membangun installer lengkap
+    lebih dulu. Ketiadaan muatan tetap ketahuan: Payload.Has memeriksanya, dan
+    wizard menonaktifkan peran yang muatannya tidak ikut terbungkus.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="payload\lab.zip"
+                      LogicalName="Retriva.Setup.payload.lab.zip"
+                      Condition="Exists('payload\lab.zip')" />
+    <EmbeddedResource Include="payload\panel.zip"
+                      LogicalName="Retriva.Setup.payload.panel.zip"
+                      Condition="Exists('payload\panel.zip')" />
+  </ItemGroup>
+</Project>

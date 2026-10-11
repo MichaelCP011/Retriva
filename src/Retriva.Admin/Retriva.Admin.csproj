@@ -1,0 +1,96 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      Ikon aplikasi. Tanpa ini, exe memakai ikon bawaan .NET — dan pintasan di
+      Start Menu, bilah tugas, serta entri Add/Remove Programs semuanya
+      menampilkan ikon generik yang tidak terhubung dengan Retriva sama sekali.
+    -->
+    <ApplicationIcon>..\..\assets\retriva.ico</ApplicationIcon>
+
+    <RootNamespace>Retriva.Admin</RootNamespace>
+    <AssemblyName>Retriva</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Kestrel + SignalR di-host di dalam aplikasi WPF.
+       FrameworkReference ini sudah membawa Microsoft.Extensions.Hosting,
+       jadi paket itu tidak perlu direferensikan terpisah (penyebab NU1510). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+
+    <!-- Sisi KLIEN SignalR, bukan sisi server.
+         FrameworkReference di atas hanya membawa hub-nya; HubConnection ada di
+         paket terpisah ini. Panel admin kini menjadi klien terhadap Superadmin
+         sekaligus — bila ia yang menjadi Superadmin — meng-host hub itu sendiri,
+         jadi kedua sisinya memang dibutuhkan dalam satu proses. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.*" />
+
+    <!-- NU1903: paket ini menarik SQLitePCLRaw.lib.e_sqlite3 yang membundel
+         SQLite versi terdampak CVE-2025-6965. Belum ada rilis perbaikan resmi.
+         Risiko untuk Retriva dinilai dapat diterima: basis data bersifat lokal,
+         satu proses, dan tidak pernah menjalankan SQL dari masukan tak tepercaya.
+         Tinjau berkala dengan perintah: dotnet list package (opsi vulnerable).
+         Bila tersedia paket native yang lebih baru, timpa transitifnya lewat
+         PackageReference eksplisit ke SQLitePCLRaw.lib.e_sqlite3. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+  </ItemGroup>
+
+  <!-- Logo dan ikon disalin apa adanya, tidak ditanam sebagai sumber daya,
+       supaya dapat diganti tanpa membangun ulang aplikasi. -->
+  <ItemGroup>
+    <Content Include="..\..\assets\admin\**\*"
+             Link="assets\admin\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+    <ProjectReference Include="..\Retriva.Ui\Retriva.Ui.csproj" />
+    <ProjectReference Include="..\Retriva.Media\Retriva.Media.csproj" />
+    <ProjectReference Include="..\Retriva.Server\Retriva.Server.csproj" />
+  </ItemGroup>
+
+  <!--
+    Berkas-berkas ini sudah pindah ke Retriva.Server dan tidak lagi dikompilasi
+    di sini. Salinan lamanya masih tertinggal di disk karena folder yang
+    di-mount menolak penghapusan; membiarkannya ikut terkompilasi akan membuat
+    setiap tipe terdefinisi dua kali dan seluruh solusi gagal build.
+
+    Aman dihapus manual kapan saja. Isinya sudah diganti penunjuk satu baris
+    supaya tidak ada yang keliru menyunting salinan yang sudah mati.
+  -->
+  <ItemGroup>
+    <Compile Remove="AgentHub.cs" />
+    <Compile Remove="CommandBatches.cs" />
+    <Compile Remove="DeviceRegistry.cs" />
+    <Compile Remove="UnitRegistry.cs" />
+    <Compile Remove="UnitWatchdog.cs" />
+    <Compile Remove="Data\**\*.cs" />
+    <Compile Remove="Power\**\*.cs" />
+    <Compile Remove="Security\**\*.cs" />
+  </ItemGroup>
+  <!--
+    Hasil build React diambil dari dist/ di akar solusi, bukan dari wwwroot di dalam
+    project ini. Vite kini menghasilkan DUA halaman — panel admin dan klien
+    mahasiswa — dan keduanya perlu menyalin dari sumber yang sama.
+
+    Folder src/Retriva.Admin/wwwroot yang lama sudah tidak dirujuk lagi. Ia masih
+    ada di disk karena folder yang di-mount menolak penghapusan; aman dihapus
+    manual kapan saja.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\dist\**\*"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

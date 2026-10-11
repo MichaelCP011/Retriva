@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Pustaka WPF bersama untuk panel admin dan klien mahasiswa.
+
+      Isinya hanya kerangka jendela: bingkai kustom, tombol jendela, dan
+      pemuatan logo. Dibuat terpisah karena keduanya membutuhkan hal yang sama
+      persis, dan menyalinnya ke dua tempat berarti dua tempat yang harus
+      diperbaiki setiap kali ada yang keliru — dengan yang kedua selalu terlupa.
+
+      Retriva.Media tidak dipakai untuk ini meskipun sama-sama bertarget Windows,
+      karena Media sengaja tidak menyalakan WPF: ia berisi penangkapan layar dan
+      encoding yang tidak boleh terikat pada antarmuka.
+    -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Retriva.Ui</RootNamespace>
+  </PropertyGroup>
+</Project>

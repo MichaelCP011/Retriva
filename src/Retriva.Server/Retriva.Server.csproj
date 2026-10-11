@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      "Server" di sini adalah PERAN, bukan sebuah mesin.
+
+      Komponen ini berisi hub, basis data, sertifikat, dan kredensial — dan ia
+      ikut terpasang di komputer Superadmin, yaitu PC Asisten. Retriva TIDAK
+      membutuhkan server terpisah, dan tidak boleh sampai membutuhkannya:
+      angkatan berikutnya yang mengelola lab ini mungkin tidak punya akses ke
+      server mana pun, dan aplikasi yang menuntutnya akan menjadi tidak terpakai.
+
+      net10.0 polos, bukan net10.0-windows. Alasannya bukan lintas platform
+      melainkan kebersihan: dengan menolak WPF dan seluruh API Windows di sini,
+      koordinator dijamin dapat berjalan sebagai layanan latar tanpa ada orang
+      yang login. Kalau ia sampai bergantung pada antarmuka, ia hanya hidup
+      selama ada yang membuka aplikasinya — dan lab berhenti saat asisten
+      menutup jendelanya.
+
+      Efek sampingnya gratis: komponen ini juga berjalan di Linux bila suatu
+      saat memang ada server yang bisa dipakai. Itu bonus, bukan rencana.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Retriva.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+
+    <!--
+      NU1903 / CVE-2025-6965.
+
+      Microsoft.Data.Sqlite menarik SQLitePCLRaw.lib.e_sqlite3 2.1.11, yang
+      membundel SQLite terdampak. Baris di bawah menaikkannya secara langsung.
+
+      PENOMORANNYA MEMBINGUNGKAN, DAN ITU LAYAK DICATAT. Sejak seri 3, tiga
+      angka pertama paket ini adalah versi SQLITE yang dibundel, bukan versi
+      pustaka pembungkusnya. Jadi 3.53.3 berarti SQLite 3.53.3 — jauh di atas
+      3.50.2 yang menutup CVE-nya — dan BUKAN lompatan mayor yang mengubah API.
+      Tanpa catatan ini, orang berikutnya akan melihat "2.1.11 -> 3.53.3",
+      menyimpulkan itu perubahan besar yang berisiko, lalu mengembalikannya.
+
+      Yang dinaikkan hanya paket binari nativnya. SQLitePCLRaw.core dan
+      Microsoft.Data.Sqlite tetap di versinya sendiri; keduanya memanggil
+      binari ini lewat P/Invoke dengan tanda tangan fungsi SQLite yang stabil.
+
+      Menekan peringatannya lewat properti NoWarn sengaja TIDAK dipilih. Itu
+      menghapus tandanya tanpa menyentuh sebabnya, dan yang hilang bukan hanya
+      peringatan ini melainkan seluruh peringatan kerentanan berikutnya —
+      termasuk yang belum ada saat baris itu ditulis.
+
+      Tinjau berkala dengan perintah:
+        dotnet list package (opsi vulnerable, dengan include transitive)
+    -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+  </ItemGroup>
+</Project>

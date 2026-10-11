@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Retriva.Media</RootNamespace>
+    <!-- System.IO tidak termasuk implicit usings di project bertarget Windows,
+         jadi berkas di sini menuliskannya sendiri. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Project WPF mendapat System.Drawing lewat framework Windows Desktop.
+         Pustaka biasa seperti ini tidak, jadi paketnya direferensikan sendiri. -->
+    <PackageReference Include="System.Drawing.Common" Version="10.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+  </ItemGroup>
+</Project>

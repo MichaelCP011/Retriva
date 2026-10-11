@@ -1,0 +1,31 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Node / React
+node_modules/
+dist/
+ui/dist/
+src/Retriva.Console/wwwroot/
+
+# Runtime artefak
+*.db
+*.db-shm
+*.db-wal
+*.log
+certs/
+config/*.local.json
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Builds & Binaries
+publish/
+release/
+*.zip
+*.exe
+

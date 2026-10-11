@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      Sengaja TIDAK mereferensikan Retriva.Shared maupun Retriva.Media.
+
+      Gunanya alat ini adalah membuktikan apakah multicast bekerja di mesin ini
+      SAMA SEKALI, terlepas dari kode Retriva. Kalau ia memakai FramePacket atau
+      FrameSender, kegagalannya tidak lagi dapat dibedakan dari bug di kode kita
+      — dan itu justru yang sedang dieliminasi.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>RetrivaNetCheck</AssemblyName>
+    <RootNamespace>Retriva.NetCheck</RootNamespace>
+  </PropertyGroup>
+</Project>

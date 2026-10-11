@@ -1,0 +1,1222 @@
+/* ============================================================
+   Antarmuka klien mahasiswa.
+
+   Menumpang seluruh token dan komponen dasar dari styles.css: rail gelap,
+   .pane, .btn, .field, .msg, .empty, .st. Yang ditambahkan di sini hanya
+   susunan yang memang berbeda.
+
+   Prinsipnya sama dengan panel admin dan dipegang ketat: tanpa gradien, tanpa
+   bayangan berlebihan, tanpa emoji, satu keluarga ikon dengan satu ketebalan.
+   Hierarki dibawa tipografi dan ruang, bukan oleh warna yang saling berebut.
+   ============================================================ */
+
+/* ================= layar masuk ================= */
+
+.cw {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(300px, 38%) 1fr;
+}
+
+/* Sisi kiri memakai jangkar gelap yang sama dengan rail panel admin, supaya
+   layar pertama yang dilihat mahasiswa langsung terbaca sebagai perangkat
+   lunak yang sama dengan yang dipakai asistennya. */
+.cw-brand {
+  background: var(--rail-bg);
+  color: var(--rail-ink);
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Logo dimuat dari berkas, bukan digambar dengan CSS. Latar dan tipografinya
+   sengaja dilepas: bentuk dan warna dibawa oleh logonya sendiri, sehingga
+   menggantinya tidak menuntut menyentuh CSS sama sekali. */
+.cw-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r);
+  margin-bottom: 22px;
+  display: block;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cw-brand h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.1;
+}
+.cw-tag {
+  font-size: 12.5px;
+  color: var(--rail-ink-dim);
+  margin-top: 5px;
+}
+
+.cw-note {
+  margin-top: 34px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--rail-ink-dim);
+}
+.cw-note p { margin-bottom: 12px; }
+.cw-note ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cw-note li { padding-left: 16px; position: relative; }
+.cw-note li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.cw-foot {
+  margin-top: auto;
+  padding-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--rail-ink-dim);
+  font-family: var(--mono);
+}
+
+.cw-form {
+  background: var(--canvas);
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  overflow-y: auto;
+}
+.cw-form-inner { width: 100%; max-width: 340px; }
+
+.cw-hi {
+  font-size: 12.5px;
+  color: var(--accent-fill);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.cw-form h2 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+}
+.cw-sub {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  line-height: 1.6;
+  margin: 8px 0 22px;
+}
+.cw-submit {
+  width: 100%;
+  justify-content: center;
+  padding: 8px 12px;
+}
+.cw-help-note {
+  margin-top: 16px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+}
+
+/* ================= kerangka utama ================= */
+
+.cl {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  overflow: hidden;
+}
+
+.cl-rail {
+  background: var(--rail-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  gap: 4px;
+  min-height: 0;
+}
+.cl-rail .rail-btn { position: relative; }
+
+/* Titik kecil, bukan angka. Di rail selebar 34px angka akan terpotong, dan
+   mahasiswa tidak perlu tahu jumlahnya — hanya perlu tahu ada yang baru. */
+.rail-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--rail-bg);
+}
+
+.cl-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.cl-bar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+.cl-bar h1 { font-size: 14px; font-weight: 600; }
+.cl-bar .sp { flex: 1; }
+
+.cl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.cl-me {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.cl-me span {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ink-dim);
+}
+
+/* min-height:0 wajib, kalau tidak isi membesar melampaui layar dan
+   overflow-y tidak pernah aktif. */
+.cl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ================= beranda ================= */
+
+.cl-home { display: flex; flex-direction: column; gap: 16px; }
+
+.cl-hero { padding: 4px 2px 2px; }
+.cl-hi {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+.cl-hero h2 {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+.cl-hero p {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  line-height: 1.65;
+  margin-top: 8px;
+  max-width: 62ch;
+}
+.cl-hero b { color: var(--ink); font-weight: 600; }
+
+/* Tindakan utama. Selebar isi dan berdiri sendiri, bukan satu di antara
+   beberapa tombol — supaya tidak perlu dicari saat sedang dibutuhkan. */
+.cl-action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 16px 18px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+  transition: background .12s, border-color .12s;
+}
+.cl-action:hover { background: var(--surface-2); border-color: var(--border); }
+
+.cl-action-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+  display: grid;
+  place-items: center;
+}
+.cl-action-text { flex: 1; min-width: 0; }
+.cl-action-text b { display: block; font-size: 14px; font-weight: 600; }
+.cl-action-text span {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+  margin-top: 3px;
+}
+.cl-action-go { color: var(--ink-dim); flex-shrink: 0; }
+
+.cl-action.on {
+  background: var(--warn-wash);
+  border-color: var(--warn-line);
+}
+.cl-action.on .cl-action-icon { background: var(--warn); color: #fff; }
+.cl-action.on .cl-action-text b { color: var(--warn); }
+.cl-action.on .cl-action-text span { color: var(--warn); opacity: .82; }
+.cl-action.on .cl-action-go { color: var(--warn); }
+
+.cl-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.cl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 14px 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+}
+.cl-card:hover { background: var(--surface-2); border-color: var(--border); }
+.cl-card svg { color: var(--ink-muted); margin-bottom: 6px; }
+.cl-card b { font-size: 13px; font-weight: 600; }
+.cl-card span {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cl-tips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  padding: 2px;
+}
+.cl-tips svg { flex-shrink: 0; }
+
+/* ================= percakapan ================= */
+
+.cl-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.cl-chat .thread-body { flex: 1; min-height: 0; }
+.cl-chat .msg { max-width: 74%; }
+
+/* Tanpa penanda ini, mahasiswa mengira pesan yang disebar ke seluruh kelas
+   adalah teguran pribadi untuk dirinya. */
+.msg-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  opacity: .65;
+  margin-bottom: 4px;
+}
+
+/* ================= berkas ================= */
+
+.cl-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  color: var(--ink);
+}
+.cl-file + .cl-file { border-top: 1px solid var(--divider); }
+.cl-file:hover { background: var(--surface-2); }
+
+/* Ekstensi sebagai label, bukan ikon dokumen generik. Mahasiswa mencari
+   berkasnya berdasarkan jenis, dan satu ikon yang sama untuk semuanya tidak
+   membantu memilah pptx dari zip. */
+.cl-file-ext {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--r);
+  background: var(--surface-3);
+  color: var(--ink-muted);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.cl-file-text { flex: 1; min-width: 0; }
+.cl-file-text b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-file-text span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  margin-top: 2px;
+}
+.cl-file-go { color: var(--ink-dim); flex-shrink: 0; }
+
+/* ================= layar sempit ================= */
+
+@media (max-width: 720px) {
+  .cw { grid-template-columns: 1fr; }
+  .cw-brand { display: none; }
+  .cl-cards { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   LAPISAN GERAK
+
+   Satu sistem, bukan animasi yang ditempel satu per satu. Semua memakai kurva
+   dan durasi yang sama supaya terasa seperti satu benda yang bergerak, bukan
+   kumpulan elemen yang kebetulan masing-masing beranimasi.
+
+   Kurva 0.16/1/0.3/1 itu "expo out": cepat di awal lalu melambat panjang.
+   Ia terasa mahal karena meniru benda bermassa yang direm, bukan sesuatu yang
+   digeser dengan kecepatan tetap.
+
+   Seluruhnya dimatikan untuk yang meminta gerak minimal. Ini bukan formalitas
+   aksesibilitas — di lab, animasi yang tidak bisa dimatikan adalah gangguan
+   bagi orang yang sensitif terhadap gerak, dan mereka duduk di sana empat jam.
+   ============================================================ */
+
+:root {
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  --dur: 620ms;
+}
+
+/* Muncul bertahap. Jarak geraknya kecil dengan sengaja: pergerakan besar
+   terbaca sebagai animasi, pergerakan kecil terbaca sebagai benda yang
+   mengendap ke tempatnya. */
+@keyframes rv-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.rv {
+  opacity: 0;
+  animation: rv-in var(--dur) var(--ease) forwards;
+  animation-delay: var(--d, 0ms);
+}
+
+/* Titik hidup. Denyutnya selaras dengan heartbeat 5 detik milik agent, jadi
+   yang berkedip adalah bukti jalurnya hidup — bukan hiasan. */
+.live-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--ok);
+  animation: live-ring 5s var(--ease) infinite;
+}
+.live-dot.off { background: var(--ink-dim); }
+.live-dot.off::after { display: none; }
+
+@keyframes live-ring {
+  0%       { opacity: .7; transform: scale(.6); }
+  22%, 100%{ opacity: 0;  transform: scale(2.1); }
+}
+
+/* Kanvas peta laboratorium. Ditaruh di belakang teks, tidak menangkap klik. */
+.cw-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.cw-brand { position: relative; overflow: hidden; }
+.cw-brand-content { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; }
+
+/* Saat menghubungkan, sisi formulir surut sedikit sementara peta tetap hidup —
+   perhatian berpindah ke jaringan yang sedang menyambut. */
+.cw.signing .cw-form-inner { opacity: .55; transform: scale(.99); }
+.cw-form-inner { transition: opacity .4s var(--ease), transform .4s var(--ease); }
+
+.spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #fff;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Interaksi: angkat halus, bukan pembesaran. Membesar membuat elemen menabrak
+   tetangganya; terangkat menjaga tata letak tetap tenang. */
+.cl-action, .cl-card, .cl-file {
+  transition: background .18s var(--ease), border-color .18s var(--ease),
+              transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+.cl-action:hover, .cl-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, .22);
+}
+.cl-action:active, .cl-card:active { transform: translateY(0); }
+.cl-action:hover .cl-action-go { transform: translateX(3px); }
+.cl-action-go { transition: transform .18s var(--ease); }
+
+/* Ikon tindakan utama ikut berdenyut saat permintaan bantuan menyala, supaya
+   keadaan aktifnya terasa hidup dan bukan sekadar warna yang berubah. */
+.cl-action.on .cl-action-icon { animation: help-beat 2.4s var(--ease) infinite; }
+@keyframes help-beat {
+  0%, 100% { transform: scale(1); }
+  8%       { transform: scale(1.07); }
+  16%      { transform: scale(1); }
+}
+
+.cl-file:hover .cl-file-go { transform: translate(2px, -2px); }
+.cl-file-go { transition: transform .18s var(--ease); }
+
+/* Rail: penanda aktif menggeser, tidak berkedip muncul. */
+.cl-rail .rail-btn { transition: background .16s var(--ease), color .16s var(--ease); }
+.rail-dot { animation: rv-in 320ms var(--ease); }
+
+/* Gelembung pesan masuk dari sisinya masing-masing. */
+@keyframes msg-in-them { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@keyframes msg-in-me   { from { opacity: 0; transform: translateX(8px); }  to { opacity: 1; transform: none; } }
+.cl-chat .msg.them { animation: msg-in-them 320ms var(--ease); }
+.cl-chat .msg.me   { animation: msg-in-me 320ms var(--ease); }
+
+/* Pergantian tab. Halaman baru naik sedikit alih-alih berganti mendadak. */
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.cl-scroll { animation: page-in 300ms var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rv, .cl-scroll, .cl-chat .msg, .rail-dot { animation: none; opacity: 1; transform: none; }
+  .live-dot::after, .cl-action.on .cl-action-icon, .spin { animation: none; }
+  .cl-action, .cl-card, .cl-file, .cw-form-inner { transition: none; }
+  .cl-action:hover, .cl-card:hover { transform: none; box-shadow: none; }
+}
+
+/* ============================================================
+   BERANDA · PESAN · BERKAS
+
+   Aturan yang dipegang: tiap gerak harus menandai sesuatu yang berubah.
+   Gerak yang tidak menandai apa-apa adalah kebisingan, dan kebisingan adalah
+   yang membedakan tampilan yang terasa mahal dari yang terasa berusaha
+   tampak mahal.
+   ============================================================ */
+
+/* ---------------- pita sesi ---------------- */
+
+.cl-strip {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.cl-strip-item {
+  flex: 1;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cl-strip-item span {
+  font-size: 10.5px;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+.cl-strip-item b {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.cl-strip-div { width: 1px; background: var(--divider); }
+.cl-strip-live { display: flex; align-items: center; gap: 7px; font-size: 15px !important; }
+
+/* ---------------- nama unit ---------------- */
+
+.cl-name {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cl-name label {
+  font-size: 10.5px;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+.cl-name-row { display: flex; align-items: center; gap: 8px; }
+.cl-name-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  outline: none;
+}
+.cl-name-row input:focus { border-color: var(--accent); }
+.cl-name-hint { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; }
+
+/* ---------------- kartu ringkas ---------------- */
+
+.cl-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cl-card-top svg { margin: 0; }
+
+.cl-card-badge {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cl-card-badge.quiet {
+  background: var(--surface-3);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+/* Angka besar yang naik dari nol. Tabular supaya lebarnya tidak berdenyut
+   saat digitnya berubah — angka yang bergoyang terbaca murah. */
+.cl-card-num {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+/* ---------------- keadaan kosong ---------------- */
+
+.cl-blank {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.cl-blank b { font-size: 13.5px; font-weight: 600; }
+.cl-blank span {
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  max-width: 40ch;
+}
+
+/* Cincin yang mengembang pelan. Satu-satunya gerak di layar kosong, jadi ia
+   tidak bersaing dengan apa pun — dan menandakan aplikasi hidup, bukan hang. */
+.cl-blank-art {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  display: grid;
+  place-items: center;
+}
+.cl-blank-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  animation: blank-ring 3.2s var(--ease) infinite;
+}
+@keyframes blank-ring {
+  0%        { opacity: .8; transform: scale(1); }
+  70%, 100% { opacity: 0;  transform: scale(1.55); }
+}
+
+/* ---------------- percakapan ---------------- */
+
+.cl-msg-wrap { display: flex; flex-direction: column; gap: 10px; }
+
+/* Pemisah hari. Garis tipis dengan label di tengah — cara paling tenang
+   menandai batas tanpa memotong aliran baca. */
+.cl-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+}
+.cl-day::before, .cl-day::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+}
+.cl-day span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+
+.cl-row { display: flex; align-items: flex-end; gap: 8px; }
+.cl-row.me { justify-content: flex-end; }
+
+.cl-avatar {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--rail-bg);
+  color: var(--rail-ink);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+/* Pil "pesan terbaru" saat pembaca sedang menggulung ke atas. */
+.cl-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--rail-bg);
+  color: var(--rail-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, .35);
+  animation: rv-in 260ms var(--ease);
+  z-index: 2;
+}
+.cl-chat { position: relative; }
+
+/* Tombol kirim baru "menyala" saat ada yang diketik. Perubahan halus, tetapi
+   ia menjawab pertanyaan yang selalu ada di kepala orang: sudah bisa dikirim
+   belum. */
+.cl-send { transition: transform .18s var(--ease), opacity .18s var(--ease); }
+.cl-send.ready svg { animation: send-nudge 2.6s var(--ease) infinite; }
+@keyframes send-nudge {
+  0%, 88%, 100% { transform: none; }
+  92%           { transform: translateX(2px); }
+}
+
+/* ---------------- berkas ---------------- */
+
+/* Warna keluarga jenis berkas, semuanya dari token yang sudah ada. Gunanya
+   memindai: blok warna jauh lebih cepat dibaca mata daripada teks ekstensi
+   yang semuanya seragam. */
+.cl-file-ext.t-doc   { background: var(--accent-wash); color: var(--accent-fill); }
+.cl-file-ext.t-sheet { background: var(--ok-wash);     color: var(--ok); }
+.cl-file-ext.t-slide { background: var(--warn-wash);   color: var(--warn); }
+.cl-file-ext.t-code  { background: var(--surface-3);   color: var(--link); }
+.cl-file-ext.t-image { background: var(--surface-3);   color: var(--ink-muted); }
+.cl-file-ext.t-pack  { background: var(--surface-3);   color: var(--ink-muted); }
+
+/* Kilau sekali lewat saat berkas baru mendarat, lalu tenang. Sorotan yang
+   menetap berubah jadi kebisingan; sorotan sekali menarik mata tepat ke hal
+   yang barusan berubah. */
+.cl-file { position: relative; overflow: hidden; }
+.cl-file.fresh::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg,
+    transparent 30%, var(--accent-wash) 50%, transparent 70%);
+  animation: sweep 1.4s var(--ease) 2;
+  pointer-events: none;
+}
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-blank-art::after, .cl-send.ready svg, .cl-file.fresh::after,
+  .cl-jump { animation: none; }
+  .cl-file.fresh::after { display: none; }
+}
+
+/* ============================================================
+   LATAR BERGERAK
+
+   Tiga tempat, satu aturan: latar tidak boleh bersaing dengan isi. Semuanya
+   berada di bawah 20% opasitas, dan tidak satu pun menangkap klik.
+   ============================================================ */
+
+.amb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Topologi di belakang percakapan. Dibuat memudar ke arah bawah supaya
+   kolom ketik dan gelembung pesan terakhir tetap bersih. */
+.amb-topology {
+  opacity: .85;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 42%, #000 30%, transparent 78%);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 42%, #000 30%, transparent 78%);
+}
+.cl-chat .thread-body, .cl-chat .thread-input { position: relative; z-index: 1; }
+
+/* ---------------- pita garis di hero ---------------- */
+
+.cl-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  padding: 26px 22px 30px;
+  min-height: 168px;
+}
+.cl-hero > *:not(.amb) { position: relative; z-index: 1; }
+
+/*
+  Pita ditempatkan di paruh kanan dan memudar ke kiri, sehingga teks sapaan
+  duduk di area yang bersih sementara pitanya tetap terlihat utuh. Menaruhnya
+  di belakang teks secara merata akan membuat nama sulit dibaca — dan nama itu
+  hal pertama yang dicari mata.
+*/
+.amb-ribbon {
+  left: 22%;
+  width: 78%;
+  opacity: .9;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 34%, #000 88%, transparent 100%);
+          mask-image: linear-gradient(to right, transparent 0%, #000 34%, #000 88%, transparent 100%);
+}
+
+/* ---------------- keadaan kosong siaran ---------------- */
+
+.cl-idle {
+  position: relative;
+  min-height: 215px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+}
+
+.cl-idle-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  padding: 20px;
+}
+.cl-idle-text svg { color: var(--ink-dim); margin-bottom: 6px; }
+.cl-idle-text b { font-size: 13px; font-weight: 600; }
+.cl-idle-text span {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  max-width: 42ch;
+}
+
+
+
+/* Tombol bantuan di kepala menu pesan. Bentuknya berbeda dari kartu besar di
+   beranda — di sini ia pendamping, bukan tindakan utama, karena orang yang
+   sudah membuka menu pesan biasanya memang hendak mengetik. */
+.cl-chat-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-soft);
+  position: relative;
+  z-index: 1;
+}
+.cl-chat-note {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  Tombol bantuan memakai warna aksen penuh, bukan netral.
+
+  Ia satu-satunya tindakan berkonsekuensi di layar ini — menekannya memanggil
+  orang untuk datang. Tombol netral akan tenggelam di antara kolom ketik dan
+  tombol kirim, tepat pada layar yang dibuka mahasiswa justru karena butuh
+  sesuatu.
+*/
+.cl-chat-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: var(--r);
+  background: var(--accent-fill);
+  border: 1px solid var(--accent-fill);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background .16s var(--ease), border-color .16s var(--ease),
+              transform .16s var(--ease);
+}
+.cl-chat-help:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+.cl-chat-help svg { color: #fff; }
+
+/* Saat sudah diminta, tombolnya turun dari "ajakan" jadi "keadaan" — bidang
+   pucat berbingkai, bukan bidang penuh. Tetap menonjol, tetapi tidak lagi
+   meminta ditekan. */
+.cl-chat-help.on {
+  background: var(--warn-wash);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.cl-chat-help.on:hover { background: var(--warn-wash); border-color: var(--warn); }
+.cl-chat-help.on svg { color: var(--warn); animation: help-beat 2.4s var(--ease) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-chat-help, .cl-chat-help.on svg { transition: none; animation: none; }
+}
+
+
+/* ============================================================
+   SIARAN
+
+   Pratinjau tertanam, bukan lapisan yang menutupi. Mahasiswa tetap dapat
+   membuka menu mana pun sambil menonton, dan memilih sendiri kapan ingin
+   layar penuh.
+   ============================================================ */
+
+.cl-live {
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.cl-live-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12.5px;
+}
+.cl-live-bar b { font-weight: 600; }
+.cl-live-bar .num { font-size: 11px; color: var(--ink-dim); }
+.cl-live-bar .sp { flex: 1; }
+
+/* Sumur gelap: siaran hampir selalu berisi jendela terang, dan bingkai terang
+   di sekelilingnya membuat batasnya hilang. */
+/*
+  Sumur gelap: siaran hampir selalu berisi jendela terang, dan bingkai terang
+  di sekelilingnya membuat batasnya hilang.
+
+  Gambar TIDAK direntang memenuhi kotak melainkan dibatasi lalu ditengahkan.
+  Merentangkannya dengan width dan height 100% membuat object-fit menyisakan
+  bilah kosong hanya di satu sisi bila rasio kotak tidak persis sama dengan
+  rasio layar dosen — dan siarannya terlihat menempel ke kiri, bukan di tengah.
+*/
+/*
+  Panggung MENGISI tingginya, bukan menyusut ke tinggi gambarnya.
+
+  Sebelumnya panggung hanya setinggi gambar yang kebetulan datang, sehingga blok
+  siaran menyisakan ruang kosong di bawahnya — dan pada layar dosen yang lebih
+  lebar daripada kotaknya, gambarnya duduk di pojok dengan sisa kosong yang
+  terlihat seperti tampilan yang gagal dimuat.
+
+  Tinggi tetap plus penengahan dua sumbu membuat gambarnya selalu di tengah,
+  seberapa pun rasionya, dan bloknya selalu terisi penuh.
+*/
+.cl-live-stage {
+  background: var(--well);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+  height: 46vh;
+  min-height: 260px;
+}
+.cl-live-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Pita pengingat di tab selain beranda. */
+.cl-live-strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 18px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+}
+.cl-live-strip:hover { background: var(--surface-3); }
+.cl-live-strip-go {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-dim);
+  font-size: 11.5px;
+}
+
+/* ---------------- layar penuh ---------------- */
+
+.cl-full {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: var(--well);
+  outline: none;
+  cursor: default;
+}
+
+/*
+  Bilah kendali adalah LAPISAN di atas gambar, bukan baris yang mendorongnya.
+
+  Sebagai baris, ia memakan tinggi layar dan siaran ikut terpotong — persis
+  gejalanya. Sebagai lapisan, seluruh tinggi kembali menjadi milik isinya.
+  Ia juga memudar sendiri saat mouse diam, seperti pemutar video mana pun.
+*/
+.cl-full-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 20, .88);
+  border-bottom: 1px solid rgba(255, 255, 255, .10);
+  color: #EBEBEB;
+  font-size: 12.5px;
+  transition: opacity .28s var(--ease), transform .28s var(--ease);
+}
+.cl-full-bar b { font-weight: 600; }
+.cl-full-bar .num { font-size: 11px; color: #9A9A9A; }
+.cl-full-bar .sp { flex: 1; }
+.cl-full-bar .btn {
+  background: rgba(255, 255, 255, .10);
+  border-color: rgba(255, 255, 255, .16);
+  color: #EBEBEB;
+}
+.cl-full-bar .btn:hover { background: rgba(255, 255, 255, .18); }
+
+.cl-full-bar.hidden {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+/* Gambar mengisi ruang yang tersedia dan tetap di tengah pada kedua sumbu,
+   berapa pun rasio layar dosen dibanding layar mahasiswa. */
+.cl-full .cl-live-img {
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-full-bar { transition: none; }
+}
+
+/* ---------------- izin kendali jarak jauh ----------------
+   Di atas segalanya termasuk siaran layar penuh (z-index 40). Permintaan izin
+   yang tertutup gambar siaran adalah permintaan yang tidak pernah terjawab —
+   dan diamnya akan terbaca sebagai penolakan.                                */
+.cl-consent {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--canvas) 78%, transparent);
+  backdrop-filter: blur(3px);
+  animation: rv-in 180ms var(--ease);
+}
+
+.cl-consent-box {
+  width: min(440px, calc(100vw - 48px));
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+
+.cl-consent-head {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 14px; margin-bottom: 10px;
+}
+
+.cl-consent-box p {
+  margin: 0 0 14px; font-size: 13px; line-height: 1.7; color: var(--ink-muted);
+}
+
+.cl-consent-timer {
+  font-size: 12px; color: var(--ink-dim); margin-bottom: 16px;
+}
+.cl-consent-timer b { font-family: var(--mono); color: var(--ink); }
+
+.cl-consent-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Tombol tamu: sekunder terhadap Masuk, bukan sejajar dengannya. Jalur yang
+   dipakai hampir semua orang harus tetap yang paling menonjol.               */
+.cw-guest {
+  width: 100%; justify-content: center; margin-top: 8px;
+  background: transparent; border-color: var(--border);
+  color: var(--ink-muted);
+}
+.cw-guest:hover { background: var(--surface-2); color: var(--ink); }
+
+/* ---------------- tautan di dalam pesan ----------------
+   Tombol, bukan elemen <a>. Tidak ada href yang dapat ditekan peramban sendiri,
+   dan tidak ada menu konteks "buka di tab baru" yang melewati pemeriksaan di
+   sisi host. Satu-satunya jalan membuka tautan adalah lewat host.            */
+.cl-link {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  font: inherit; text-align: left;
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+.cl-link:hover { color: var(--ink); }
+.cl-link svg { flex: none; align-self: center; }
+
+/* Di dalam gelembung pesan sendiri, biru tautan tenggelam di latar gelap. */
+.msg.me .cl-link { color: var(--msg-me-ink); }
+.msg.me .cl-link:hover { color: #fff; }
+
+/* ---------------- pencarian di daftar berkas ---------------- */
+.cl-file-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; margin-bottom: 10px;
+  border: 1px solid var(--border-soft); border-radius: var(--r);
+  background: var(--surface-1);
+  color: var(--ink-dim);
+}
+.cl-file-search input {
+  flex: 1; border: none; background: none; outline: none;
+  font-size: 13px; color: var(--ink);
+}
+.cl-file-search input::placeholder { color: var(--ink-dim); }
+.cl-file-search:focus-within { border-color: var(--border); }
+
+/* ---------------- papan mode ujian ----------------
+   Bilah paling atas, di atas rail dan isi. Tetap terlihat selama sesi berjalan;
+   mahasiswa tidak dapat menutupnya, dan itu memang syaratnya — pengawasan yang
+   pemberitahuannya bisa dibuang bukan pengawasan yang diberitahukan.         */
+.cl.exam { grid-template-rows: auto 1fr; }
+
+.cl-exam {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 14px;
+  background: var(--warn-wash);
+  border-bottom: 1px solid var(--warn-line);
+  color: var(--warn);
+  font-size: 12px;
+}
+.cl-exam svg { flex: none; }
+.cl-exam b { font-size: 12.5px; white-space: nowrap; }
+.cl-exam span { color: var(--ink-muted); line-height: 1.5; }

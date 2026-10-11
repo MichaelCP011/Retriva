@@ -1,0 +1,7 @@
+# Muatan installer dibuat build-installer.ps1 dari hasil publish.
+#
+# Tidak pernah dikomit: ukurannya puluhan megabyte dan isinya hasil build,
+# bukan sumber. Folder ini sengaja dipertahankan supaya csproj punya tempat
+# yang jelas untuk mencarinya, dan supaya ketiadaannya terbaca sebagai
+# "belum dibangun" alih-alih "jalurnya salah".
+*.zip
