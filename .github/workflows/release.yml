@@ -1,0 +1,50 @@
+name: Retriva Auto Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Memicu otomatis saat tag versi dibuat (contoh: git tag v1.0.1 && git push origin v1.0.1)
+  workflow_dispatch: # Memungkinkan klik tombol "Run workflow" manual dari GitHub Actions
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Package RetrivaSetup.exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install UI Dependencies & Build Web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Installer (RetrivaSetup.exe)
+        shell: pwsh
+        run: |
+          .\build-installer.ps1
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release/RetrivaSetup.exe
+          name: Retriva ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false

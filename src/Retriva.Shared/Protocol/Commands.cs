@@ -45,6 +45,7 @@ public static class PowerDelays
 [JsonDerivedType(typeof(AcknowledgeHelpCommand),"help.ack")]
 [JsonDerivedType(typeof(ClearChatCommand),      "chat.clear")]
 [JsonDerivedType(typeof(PushFileCommand),       "file.push")]
+[JsonDerivedType(typeof(UpdateLabCommand),      "lab.update")]
 public abstract record AgentCommand
 {
     /// <summary>Dipakai agent untuk mengembalikan hasil yang cocok dengan perintahnya.</summary>
@@ -270,4 +271,15 @@ public sealed record PushFileCommand : AgentCommand
 
     /// <summary>Sidik SHA-256 isi berkas, diverifikasi agent setelah unduhan.</summary>
     public required string Sha256 { get; init; }
+}
+
+/// <summary>
+/// Menyuruh agent memperbarui dirinya ke versi baru.
+/// Agent mengunduh installer baru lalu memasangnya secara senyap di latar belakang.
+/// </summary>
+public sealed record UpdateLabCommand : AgentCommand
+{
+    public required string TargetVersion { get; init; }
+    public required string DownloadUrl { get; init; }
+    public string? Sha256 { get; init; }
 }

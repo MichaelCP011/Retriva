@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -10,6 +11,7 @@ using Retriva.Shared.Broadcast;
 using Retriva.Shared.Config;
 using Retriva.Shared.Protocol;
 using Retriva.Shared.Security;
+using Retriva.Shared.Update;
 
 namespace Retriva.Agent;
 
@@ -943,6 +945,15 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 break;
             }
 
+            case UpdateLabCommand c:
+            {
+                log.LogInformation("Perintah pembaruan diterima: target versi {Version}", c.TargetVersion);
+                _ = Task.Run(() => ApplySelfUpdateAsync(c), CancellationToken.None);
+                outcome = CommandOutcome.Success;
+                detail = $"memulai pembaruan ke versi {c.TargetVersion}";
+                break;
+            }
+
             case ClearChatCommand:
             {
                 var sent = await _session.SendAsync(new ClearChat
@@ -1074,6 +1085,41 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 SavedPath = result.SavedPath,
                 SizeBytes = command.SizeBytes,
             });
+        }
+    }
+
+    /// <summary>
+    /// Mengunduh dan memasang paket pembaruan baru secara senyap di latar belakang.
+    /// Installer akan menghentikan service, menimpa file di Program Files, dan menjalankan kembali service.
+    /// </summary>
+    private async Task ApplySelfUpdateAsync(UpdateLabCommand command)
+    {
+        try
+        {
+            var url = command.DownloadUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? command.DownloadUrl
+                : $"https://{_consoleHost}:{_config.ConsolePort}{command.DownloadUrl}";
+
+            log.LogInformation("Mengunduh pembaruan ke versi {Version} dari {Url}...", command.TargetVersion, url);
+
+            var tempInstaller = Path.Combine(Path.GetTempPath(), $"RetrivaUpdate-{command.TargetVersion}.exe");
+            await UpdateService.DownloadInstallerAsync(url, tempInstaller, null, CancellationToken.None);
+
+            log.LogInformation("Pembaruan berhasil diunduh ke {Path}. Menjalankan pemasangan senyap...", tempInstaller);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = tempInstaller,
+                Arguments = "--silent --role lab",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "Gagal memasang pembaruan otomatis ke versi {Version}", command.TargetVersion);
         }
     }
 

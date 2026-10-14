@@ -16,8 +16,16 @@ using Retriva.Shared.Security;
 using Retriva.Server.Data;
 using Retriva.Server.Files;
 using Retriva.Server;
-using Retriva.Server.Power;
 using Retriva.Ui;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shell;
+using Windows.UI.Notifications;
+using Windows.Data.Xml.Dom;
+using Retriva.Shared.Update;
 
 namespace Retriva.Admin;
 
@@ -48,6 +56,9 @@ public sealed class MainWindow : ChromeWindow
     /// memang sedang libur.
     /// </summary>
     private readonly SuperadminLink _link;
+    private IntPtr _hwnd;
+    private readonly HashSet<string> _pendingHelpUnits = new(StringComparer.OrdinalIgnoreCase);
+    private static ImageSource? _helpBadge;
 
     /// <summary>
     /// Penangkap dan pengirim siaran. Berjalan di konsol sendiri, bukan lewat
@@ -136,6 +147,9 @@ public sealed class MainWindow : ChromeWindow
         _link.ExamChanged += () => Run(PushExamAsync, "menyegarkan keadaan sesi ujian");
         _link.PanelsChanged += OnPanelsChanged;
         _link.BroadcastChanged += OnBroadcastStateChanged;
+        _link.HelpChanged += OnHelpChanged;
+
+        Activated += (_, _) => StopFlash();
 
         _previewTimer.Tick += (_, _) => PushBroadcastPreview();
         _sourcePreviewTimer.Tick += (_, _) => PushSourcePreview();
@@ -151,6 +165,7 @@ public sealed class MainWindow : ChromeWindow
             _link.StatusChanged -= OnLinkStatusChanged;
             _link.PanelsChanged -= OnPanelsChanged;
             _link.BroadcastChanged -= OnBroadcastStateChanged;
+            _link.HelpChanged -= OnHelpChanged;
             _previewTimer.Stop();
             StopSourcePreview();
             _remoteTimer.Stop();
@@ -165,8 +180,11 @@ public sealed class MainWindow : ChromeWindow
     /// seluruh layar ikut menyiarkan daftar unit, kode pendaftaran, dan
     /// pratinjau siarannya sendiri — yang menghasilkan efek cermin.
     /// </summary>
-    protected override void OnWindowHandleReady(IntPtr handle) =>
+    protected override void OnWindowHandleReady(IntPtr handle)
+    {
+        _hwnd = handle;
         _log.LogInformation("Pengecualian capture: {Result}", CaptureExclusion.Apply(handle));
+    }
 
     private async Task InitializeWebViewAsync()
     {
@@ -196,6 +214,7 @@ public sealed class MainWindow : ChromeWindow
             PushSettings();
             PushLinkStatus();
             TrySeed();
+            _ = Task.Run(CheckForAppUpdatesAsync);
         };
 
         // Saat menggarap UI, arahkan ke dev server Vite supaya hot reload jalan:
@@ -471,6 +490,7 @@ public sealed class MainWindow : ChromeWindow
     {
         _units = units;
         PushUnits();
+        SyncHelpTaskbar();
     });
 
     private void OnActivityChanged(ActivityEntryDto[] entries) => Dispatcher.BeginInvoke(() =>
@@ -1665,6 +1685,9 @@ public sealed class MainWindow : ChromeWindow
 
                     await Dispatcher.InvokeAsync(() =>
                     {
+                        _pendingHelpUnits.Clear();
+                        _units = _units.Select(u => u with { HelpRequestedAt = null }).ToArray();
+                        ClearHelpTaskbar();
                         PushJson(new { type = "chatReset" });
                         PushToast($"{removed} pesan dihapus — sesi kelas direset");
                     });
@@ -1675,6 +1698,11 @@ public sealed class MainWindow : ChromeWindow
             case "helpAck":
             {
                 if (request?.UnitId is not { } unitId) return;
+                _pendingHelpUnits.Remove(unitId);
+                _units = _units.Select(u => string.Equals(u.UnitId, unitId, StringComparison.OrdinalIgnoreCase)
+                    ? u with { HelpRequestedAt = null }
+                    : u).ToArray();
+                SyncHelpTaskbar();
                 Run(() => _link.AcknowledgeHelpAsync(unitId), $"menandai bantuan {unitId}");
                 break;
             }
@@ -1714,10 +1742,282 @@ public sealed class MainWindow : ChromeWindow
     {
         if (request.Raised)
         {
-            PushToast($"{request.UnitId} meminta bantuan"
-                    + (request.DisplayName is null ? "" : $" — {request.DisplayName}"), true);
+            _pendingHelpUnits.Add(request.UnitId);
+            var who = FormatClientName(request.UnitId, request.DisplayName);
+
+            PushToast($"{who} meminta bantuan", true);
+            ShowExternalHelpNotification(who);
+            SetHelpTaskbar(flash: true);
+        }
+        else
+        {
+            _pendingHelpUnits.Remove(request.UnitId);
+            _units = _units.Select(u => string.Equals(u.UnitId, request.UnitId, StringComparison.OrdinalIgnoreCase)
+                ? u with { HelpRequestedAt = null }
+                : u).ToArray();
+            SyncHelpTaskbar();
         }
     });
+
+    /* ================= notifikasi bantuan & taskbar ================= */
+
+    /// <summary>
+    /// Menentukan nama tampilan client untuk notifikasi:
+    /// Menggunakan nama/nomor PC terdaftar (mis. PC-01) dan username jika ada (mis. PC-01 (ahmad)).
+    /// </summary>
+    private string FormatClientName(string unitId, string? displayName)
+    {
+        var unit = _units.FirstOrDefault(u => string.Equals(u.UnitId, unitId, StringComparison.OrdinalIgnoreCase));
+
+        // 1. Nomor / Nama PC terdaftar:
+        var pcLabel = !string.IsNullOrWhiteSpace(unit?.Alias) ? unit.Alias.Trim() : unitId.Trim();
+
+        // 2. Username mahasiswa / login client:
+        var userLabel = !string.IsNullOrWhiteSpace(unit?.SelfName)
+            ? unit.SelfName.Trim()
+            : !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim() : null;
+
+        if (string.Equals(userLabel, pcLabel, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(userLabel, unitId, StringComparison.OrdinalIgnoreCase))
+        {
+            userLabel = null;
+        }
+
+        return !string.IsNullOrWhiteSpace(userLabel)
+            ? $"{pcLabel} ({userLabel})"
+            : pcLabel;
+    }
+
+    private void ShowExternalHelpNotification(string clientName)
+    {
+        try
+        {
+            var escapedTitle = System.Security.SecurityElement.Escape("Retriva — Permintaan Bantuan");
+            var escapedMessage = System.Security.SecurityElement.Escape($"{clientName} meminta bantuan asisten!");
+            var xmlContent = $@"
+<toast scenario=""reminder"">
+  <visual>
+    <binding template=""ToastGeneric"">
+      <text>{escapedTitle}</text>
+      <text>{escapedMessage}</text>
+    </binding>
+  </visual>
+  <audio src=""ms-winsoundevent:Notification.Default"" />
+</toast>";
+
+            var xml = new XmlDocument();
+            xml.LoadXml(xmlContent);
+
+            var toast = new ToastNotification(xml);
+            toast.Activated += (_, _) =>
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (WindowState == WindowState.Minimized)
+                            WindowState = WindowState.Normal;
+                        Activate();
+                        Topmost = true;
+                        Topmost = false;
+                        Focus();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogDebug(ex, "Gagal mengaktifkan jendela dari klik toast");
+                    }
+                });
+            };
+
+            var notifier = ToastNotificationManager.CreateToastNotifier("Retriva.Admin");
+            notifier.Show(toast);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Gagal memunculkan notifikasi Windows Toast untuk bantuan");
+        }
+    }
+
+    private void SyncHelpTaskbar()
+    {
+        try
+        {
+            var activeInSnapshot = _units.Where(u => u.HelpRequestedAt != null)
+                                        .Select(u => u.UnitId)
+                                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Selaraskan antrean lokal dengan status server
+            _pendingHelpUnits.IntersectWith(activeInSnapshot);
+            foreach (var id in activeInSnapshot)
+            {
+                _pendingHelpUnits.Add(id);
+            }
+
+            if (_pendingHelpUnits.Count > 0)
+            {
+                SetHelpTaskbar(flash: false);
+            }
+            else
+            {
+                ClearHelpTaskbar();
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Gagal menyelaraskan status taskbar bantuan");
+        }
+    }
+
+    private void SetHelpTaskbar(bool flash = true)
+    {
+        try
+        {
+            TaskbarItemInfo ??= new TaskbarItemInfo();
+            TaskbarItemInfo.ProgressState = TaskbarItemProgressState.Error;
+            TaskbarItemInfo.ProgressValue = 1.0;
+            TaskbarItemInfo.Overlay = GetOrCreateHelpBadge();
+
+            if (flash) FlashWindow();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Gagal mengatur status merah taskbar");
+        }
+    }
+
+    private void ClearHelpTaskbar()
+    {
+        try
+        {
+            _pendingHelpUnits.Clear();
+            if (TaskbarItemInfo != null)
+            {
+                TaskbarItemInfo.ProgressState = TaskbarItemProgressState.None;
+                TaskbarItemInfo.ProgressValue = 0;
+                TaskbarItemInfo.Overlay = null;
+            }
+            StopFlash();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Gagal membersihkan status merah taskbar");
+        }
+    }
+
+    private static ImageSource GetOrCreateHelpBadge()
+    {
+        if (_helpBadge != null) return _helpBadge;
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.DrawEllipse(Brushes.Crimson, new Pen(Brushes.White, 1.2), new Point(8, 8), 7, 7);
+            var text = new FormattedText(
+                "!",
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                10,
+                Brushes.White,
+                96);
+            dc.DrawText(text, new Point(6.5, 1));
+        }
+
+        var rtb = new RenderTargetBitmap(16, 16, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        rtb.Freeze();
+        _helpBadge = rtb;
+        return _helpBadge;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    private const uint FLASHW_STOP = 0;
+    private const uint FLASHW_ALL = 3;
+    private const uint FLASHW_TIMERNOFG = 12;
+
+    private IntPtr GetHwnd()
+    {
+        if (_hwnd != IntPtr.Zero) return _hwnd;
+        _hwnd = new WindowInteropHelper(this).Handle;
+        return _hwnd;
+    }
+
+    private void FlashWindow()
+    {
+        var handle = GetHwnd();
+        if (handle == IntPtr.Zero) return;
+
+        var fi = new FLASHWINFO
+        {
+            cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+            hwnd = handle,
+            dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG,
+            uCount = 0,
+            dwTimeout = 0
+        };
+        FlashWindowEx(ref fi);
+    }
+
+    private void StopFlash()
+    {
+        var handle = GetHwnd();
+        if (handle == IntPtr.Zero) return;
+
+        var fi = new FLASHWINFO
+        {
+            cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+            hwnd = handle,
+            dwFlags = FLASHW_STOP,
+            uCount = 0,
+            dwTimeout = 0
+        };
+        FlashWindowEx(ref fi);
+    }
+
+    /* ================= pembaruan mandiri (self-update) ================= */
+
+    /// <summary>
+    /// Memeriksa pembaruan di latar belakang dari GitHub Releases tanpa memblokir antarmuka.
+    /// Bila ditemukan rilis yang lebih baru, informasi pembaruan didorong ke UI.
+    /// </summary>
+    private async Task CheckForAppUpdatesAsync()
+    {
+        try
+        {
+            var update = await UpdateService.CheckGitHubReleaseAsync();
+            if (update is null) return;
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                PushToast($"Pembaruan Retriva v{update.Version} tersedia di GitHub Releases!", false);
+                PushJson(new
+                {
+                    type = "updateAvailable",
+                    version = update.Version,
+                    title = update.Title,
+                    notes = update.ReleaseNotes,
+                    downloadUrl = update.DownloadUrl,
+                    publishedAt = update.PublishedAt
+                });
+            });
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "Pengecekan pembaruan GitHub tidak berhasil");
+        }
+    }
 
     /* ================= panel lain ================= */
 

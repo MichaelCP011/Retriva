@@ -315,6 +315,7 @@ public sealed class AgentHub(
     /// <summary>Memancarkan pesan yang tidak berasal dari agent.</summary>
     internal static void RaiseChatArrived(ChatMessage message) => ChatArrived?.Invoke(message);
     public static event Action<HelpRequest>? HelpChanged;
+    internal static void RaiseHelpChanged(HelpRequest request) => HelpChanged?.Invoke(request);
 
     public Task ReportCommandResult(CommandResult result)
     {

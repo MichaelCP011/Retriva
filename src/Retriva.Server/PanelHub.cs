@@ -460,6 +460,7 @@ public sealed class PanelHub(
 
         registry.SetHelpRequested(unitId, false);
         activity.Write(panel.DisplayName, "help.acknowledged", unitId);
+        AgentHub.RaiseHelpChanged(new HelpRequest { UnitId = unitId, Raised = false, DisplayName = null });
 
         if (registry.ConnectionIdFor(unitId) is { } connectionId)
         {
