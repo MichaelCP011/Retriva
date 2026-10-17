@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowsClockwise, Broadcast, Sun, Moon } from '@phosphor-icons/react';
+import { ArrowsClockwise, Broadcast, Sun, Moon, CheckCircle } from '@phosphor-icons/react';
 import { on, send, isHosted, mockUnits } from './bridge';
 import { TITLES } from './nav';
 import { IconRail, NavPanel } from './components/Sidebar';
@@ -22,6 +22,7 @@ export default function App() {
   const [thumbs, setThumbs] = useState({});
   const [activity, setActivity] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(null);
   const [selected, setSelected] = useState(null);
   const [broadcasting, setBroadcasting] = useState(false);
   const [theme, setTheme] = useState(readTheme);
@@ -279,11 +280,16 @@ export default function App() {
       setToasts((prev) => [...prev, { id, text: m.text, warning: m.warning }]);
       setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3200);
     });
+    const offUpdateAvail = on('updateAvailable', (m) =>
+      setUpdateInfo({ version: m.version, ready: false, title: m.title }));
+    const offUpdateReady = on('updateReady', (m) =>
+      setUpdateInfo((prev) => ({ ...prev, version: m.version, ready: true, installerPath: m.installerPath })));
     send('ready');
     return () => { offUnits(); offLink(); offPanels(); offEnroll(); offLabs(); offSettings(); offActivity(); offThumb(); offToast(); offBatch(); offBc(); offSrc(); offInfo(); offBcState(); offEnd(); offExam(); offExamLine();
       offRemoteStart(); offRemoteFrame(); offRemoteEnd(); offHistory(); offChatMsg(); offReset();
       offPicked(); offStarted(); offProgress(); offFilesReset();
-      offStaging(); offStagingFailed(); };
+      offStaging(); offStagingFailed();
+      offUpdateAvail(); offUpdateReady(); };
   }, []);
 
   function openUnit(unit) {
@@ -299,7 +305,7 @@ export default function App() {
       <IconRail view={view} onNavigate={setView} />
       <NavPanel badges={{ chat: pendingChat, panels: pendingPanels }} view={view} onNavigate={setView}
         unitCount={units.length} online={online} labName={link?.labName} can={can}
-        panelRole={link?.ready ? link.role : null} />
+        panelRole={link?.ready ? link.role : null} appVersion={settings?.appVersion} />
 
       <div className="main">
         <div className="bar">
@@ -307,6 +313,12 @@ export default function App() {
           <span className="meta">{subFn(units.length, selectedUnit)}</span>
           <div className="sp" />
           <LinkBadge link={link} onOpenPanels={() => setView('panels')} />
+          {updateInfo?.ready && (
+            <button className="btn btn-primary" title={`Versi ${updateInfo.version} telah diunduh. Pasang sekarang.`}
+              onClick={() => send('installUpdateNow')}>
+              <CheckCircle size={15} />Pasang v{updateInfo.version}
+            </button>
+          )}
           <button className="btn btn-quiet"
             title={theme === 'dark' ? 'Beralih ke tema terang' : 'Beralih ke tema gelap'}
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
@@ -351,7 +363,7 @@ export default function App() {
         {view === 'network'  && <NetworkMap units={units} />}
         {view === 'exam'     && <ExamMode units={units} exam={exam} timeline={examTimeline} can={can} />}
         {view === 'panels'   && <Panels panels={panels} enrollment={enrollment} link={link} labs={labs} />}
-        {view === 'settings' && <Settings units={units} settings={settings} can={can} />}
+        {view === 'settings' && <Settings units={units} settings={settings} updateInfo={updateInfo} can={can} />}
       </div>
 
       {toasts.length > 0 && (

@@ -111,6 +111,29 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        try
+        {
+            RealMain(args);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                RetrivaPaths.EnsureDataDir();
+                File.AppendAllText(LogPath, $"=== CRASH @ {DateTime.Now:O} ==={Environment.NewLine}{ex}{Environment.NewLine}");
+            }
+            catch { }
+
+            MessageBox.Show(
+                $"Retriva gagal dibuka karena kesalahan sistem:{Environment.NewLine}{Environment.NewLine}"
+              + $"{ex.Message}{Environment.NewLine}{Environment.NewLine}"
+              + $"Rincian kesalahan:{Environment.NewLine}{ex}",
+                "Retriva — Galat", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void RealMain(string[] args)
+    {
         SetProcessDpiAwarenessContext(PerMonitorAwareV2);
 
         RetrivaPaths.EnsureDataDir();
@@ -158,11 +181,15 @@ public static class Program
         */
         if (!panel.Configured)
         {
-            var setup = new SetupWindow(panel);
+            var setup = new SetupWindow(panel, config);
             if (setup.ShowDialog() != true) return;
 
             panel.Configured = true;
             ConfigStore.Save(RetrivaPaths.PanelIdentityFile, panel);
+            if (panel.IsSuperadmin)
+            {
+                ConfigStore.Save(RetrivaPaths.ConsoleConfigFile, config);
+            }
         }
 
         if (!panel.IsSuperadmin)

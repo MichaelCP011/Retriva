@@ -59,6 +59,7 @@ public sealed class MainWindow : ChromeWindow
     private IntPtr _hwnd;
     private readonly HashSet<string> _pendingHelpUnits = new(StringComparer.OrdinalIgnoreCase);
     private static ImageSource? _helpBadge;
+    private string? _pendingUpdateInstallerPath;
 
     /// <summary>
     /// Penangkap dan pengirim siaran. Berjalan di konsol sendiri, bukan lewat
@@ -171,6 +172,12 @@ public sealed class MainWindow : ChromeWindow
             _remoteTimer.Stop();
             _remote.Dispose();
             _ = _broadcast?.DisposeAsync();
+
+            if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath) && File.Exists(_pendingUpdateInstallerPath))
+            {
+                _log.LogInformation("Aplikasi ditutup dengan pembaruan tertunda. Menjalankan silent update ke {Path}...", _pendingUpdateInstallerPath);
+                UpdateService.ApplySilentInstall(_pendingUpdateInstallerPath, "panel");
+            }
         };
     }
 
@@ -214,7 +221,7 @@ public sealed class MainWindow : ChromeWindow
             PushSettings();
             PushLinkStatus();
             TrySeed();
-            _ = Task.Run(CheckForAppUpdatesAsync);
+            _ = Task.Run(() => CheckForAppUpdatesAsync(manual: false));
         };
 
         // Saat menggarap UI, arahkan ke dev server Vite supaya hot reload jalan:
@@ -278,6 +285,22 @@ public sealed class MainWindow : ChromeWindow
                 PushUnits();
                 PushActivity();
                 PushCaptureSources();
+                break;
+
+            case "checkUpdates":
+                _ = Task.Run(() => CheckForAppUpdatesAsync(manual: true));
+                break;
+
+            case "installUpdateNow":
+                if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath) && File.Exists(_pendingUpdateInstallerPath))
+                {
+                    UpdateService.ApplySilentInstall(_pendingUpdateInstallerPath, "panel");
+                    Close();
+                }
+                else
+                {
+                    PushToast("Pembaruan sedang diunduh di latar belakang. Silakan tunggu beberapa saat.", false);
+                }
                 break;
 
             case "refreshActivity":
@@ -1990,18 +2013,46 @@ public sealed class MainWindow : ChromeWindow
 
     /// <summary>
     /// Memeriksa pembaruan di latar belakang dari GitHub Releases tanpa memblokir antarmuka.
-    /// Bila ditemukan rilis yang lebih baru, informasi pembaruan didorong ke UI.
+    /// Bila ditemukan rilis yang lebih baru, installer diunduh di latar belakang ke folder staging.
     /// </summary>
-    private async Task CheckForAppUpdatesAsync()
+    private async Task CheckForAppUpdatesAsync(bool manual = false)
     {
         try
         {
             var update = await UpdateService.CheckGitHubReleaseAsync();
-            if (update is null) return;
+            if (update is null)
+            {
+                if (manual)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        PushToast($"Aplikasi Retriva sudah menggunakan versi terbaru (v{RetrivaVersion.Current}).", false);
+                    });
+                }
+                return;
+            }
+
+            // Unduh file pembaruan di latar belakang ke folder ProgramData/updates (staging)
+            _ = Task.Run(async () =>
+            {
+                _pendingUpdateInstallerPath = await UpdateService.DownloadUpdateInBackgroundAsync(update);
+                if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath))
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        PushJson(new
+                        {
+                            type = "updateReady",
+                            version = update.Version,
+                            installerPath = _pendingUpdateInstallerPath
+                        });
+                    });
+                }
+            });
 
             await Dispatcher.InvokeAsync(() =>
             {
-                PushToast($"Pembaruan Retriva v{update.Version} tersedia di GitHub Releases!", false);
+                PushToast($"Pembaruan Retriva v{update.Version} ditemukan dan sedang diunduh di latar belakang...", false);
                 PushJson(new
                 {
                     type = "updateAvailable",
@@ -2016,6 +2067,13 @@ public sealed class MainWindow : ChromeWindow
         catch (Exception ex)
         {
             _log.LogDebug(ex, "Pengecekan pembaruan GitHub tidak berhasil");
+            if (manual)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    PushToast("Gagal memeriksa pembaruan: periksa koneksi internet.", true);
+                });
+            }
         }
     }
 
@@ -2554,9 +2612,9 @@ public sealed class MainWindow : ChromeWindow
         // Aliran yang mati tidak mengirim kabar apa pun, termasuk kabar bahwa ia
         // mati. Tanpa batas waktu ini, frame terakhir membeku di panel dan
         // tampak seperti mahasiswa yang sedang tidak menyentuh apa-apa.
-        if (_remote.FramesReceived > 0 && _remote.SinceLastFrame > TimeSpan.FromSeconds(5))
+        if (_remote.FramesReceived > 0 && _remote.SinceLastFrame > TimeSpan.FromSeconds(15))
         {
-            EndRemote("aliran layar berhenti selama 5 detik");
+            EndRemote("aliran layar berhenti selama 15 detik");
             return;
         }
 
@@ -2822,6 +2880,7 @@ public sealed class MainWindow : ChromeWindow
                 requireStudentLogin = _config.RequireStudentLogin,
                 allowGuestAccess = _config.AllowGuestAccess,
                 studentsMayRejectControl = _config.StudentsMayRejectControl,
+                appVersion = RetrivaVersion.Current,
             },
         };
 

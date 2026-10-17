@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using Microsoft.AspNetCore.SignalR.Client;
 using Retriva.Agent.Power;
 using Retriva.Agent.Session;
+using Retriva.Media;
 using Retriva.Shared.Local;
 using Retriva.Shared;
 using Retriva.Shared.Broadcast;
@@ -49,6 +50,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     private bool _lockActive;
     private string? _lockMessage;
     private string? _lockIssuer;
+    private bool _activeRemote;
 
     /// <summary>
     /// Frame terakhir sebelum layar dikunci.
@@ -147,7 +149,10 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         // sesi yang sudah mati — mahasiswa menekan pintasan keluar, aliran layar
         // berhenti, dan admin hanya melihat frame terakhir yang membeku.
         _session.RemoteEndedReceived += reason =>
+        {
+            _activeRemote = false;
             ReportToConsole(CommandOutcome.Success, $"kendali.berakhir: {reason}");
+        };
 
         // Pesan dan permintaan bantuan diteruskan apa adanya ke konsol. Agent
         // tidak menyimpan maupun menafsirkannya — ia hanya jembatan, dan
@@ -178,6 +183,28 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                 DisplayName = _session.StudentName ?? _session.WindowsUser ?? _unitId,
                 Text = chat.Text,
             });
+        };
+
+        _session.ThumbnailReceived += async thumb =>
+        {
+            _lastThumbnail = thumb.JpegData;
+            if (_connection is { State: HubConnectionState.Connected })
+            {
+                try
+                {
+                    await _connection.SendAsync("PublishThumbnail", new ThumbnailFrame
+                    {
+                        UnitId = _unitId,
+                        JpegData = thumb.JpegData,
+                        Width = thumb.Width,
+                        Height = thumb.Height,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    log.LogDebug("Pengiriman pratinjau dari klien gagal: {Message}", ex.Message);
+                }
+            }
         };
 
         _session.HelpReceived += raised =>
@@ -242,116 +269,81 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         };
         _session.Start(_unitId, () => _connection?.State == HubConnectionState.Connected);
         _ = Task.Run(() => ClientLauncher.EnsureRunning(log));
-
-        if (string.IsNullOrWhiteSpace(_config.ConsoleCertificateThumbprint))
-        {
-            log.LogError("Sidik jari sertifikat konsol belum diatur di {File}. "
-                       + "Agent menolak menyambung tanpa penyematan.", RetrivaPaths.AgentConfigFile);
-            return;
-        }
+        _ = Task.Run(() => PeriodicUpdateCheckerAsync(stoppingToken), stoppingToken);
 
         var attempt = 0;
+        string? dynamicThumbprint = _config.ConsoleCertificateThumbprint;
+        int dynamicPort = _config.ConsolePort;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var connected = false;
 
-            foreach (var endpoint in _config.ConsoleEndpoints)
+            // 1. Coba sambungkan ke endpoint yang sudah diketahui bila ada dan sidik jarinya tersedia
+            if (_config.ConsoleEndpoints.Count > 0 && !string.IsNullOrWhiteSpace(dynamicThumbprint))
             {
-                if (stoppingToken.IsCancellationRequested) return;
-                try
+                foreach (var endpoint in _config.ConsoleEndpoints.ToList())
                 {
-                    await RunAgainstAsync(endpoint, stoppingToken);
-                    connected = true;
-                    attempt = 0;
-                    break;
-                }
-                catch (OperationCanceledException) { return; }
-                catch (Exception ex)
-                {
-                    /*
-                        SELURUH RANTAI INNER EXCEPTION DICATAT, BUKAN HANYA
-                        PESAN TERLUARNYA.
-
-                        Kegagalan TLS selalu muncul sebagai "The SSL connection
-                        could not be established, see inner exception." — kalimat
-                        yang secara harfiah menyuruh melihat sesuatu yang tidak
-                        pernah ikut dicetak. Sebab sesungguhnya ada satu atau dua
-                        lapis di dalamnya: sidik jari yang tidak cocok, tidak ada
-                        yang mendengarkan di port itu, atau sertifikat kedaluwarsa.
-                        Ketiganya menuntut perbaikan yang sepenuhnya berbeda, dan
-                        dari pesan terluarnya ketiganya terlihat sama persis.
-                    */
-                    log.LogWarning("Gagal terhubung ke {Endpoint}: {Chain}",
-                        endpoint, DescribeChain(ex));
-                }
-            }
-
-            if (!connected) attempt++;
-
-            /*
-                SETELAH BEBERAPA KALI GAGAL, ALAMATNYA DICARI ULANG.
-
-                Alamat koordinator ditulis sekali saat pemasangan dan tidak
-                pernah diperbarui sesudahnya. DHCP yang memberi PC Asisten
-                alamat lain setelah pemadaman listrik, router yang diganti, atau
-                lab yang pindah ruangan — semuanya membuat empat puluh unit diam
-                serentak, dengan layanan yang berjalan sempurna dan tanpa satu
-                galat pun yang sampai ke siapa pun.
-
-                Perbaikan yang tersedia sebelum ini hanyalah memasang ulang
-                keempat puluhnya.
-
-                Dicoba pada percobaan ketiga, bukan yang pertama. Koordinator
-                yang sedang dimuat ulang atau mesin yang baru bangun wajar
-                menolak satu-dua kali, dan mendengarkan jaringan pada setiap
-                kegagalan berarti empat puluh unit menyiram multicast tiap
-                beberapa detik pada gangguan yang akan pulih sendiri.
-
-                Yang diterima HANYA lab dengan sidik jari yang sama. Alamatnya
-                diperbaiki sendiri; berpindah lab tetap menuntut kode
-                pendaftaran lab tujuan. Lihat catatan panjang di LabRediscovery.
-            */
-            if (!connected && attempt >= 3)
-            {
-                var found = await Task.Run(
-                    () => LabRediscovery.FindTrusted(
-                        _config.ConsoleCertificateThumbprint, TimeSpan.FromSeconds(6), log),
-                    stoppingToken);
-
-                if (found is not null && !_config.ConsoleEndpoints.Contains(found))
-                {
-                    log.LogWarning("Alamat koordinator berubah — memakai {Endpoint}", found);
-
-                    // Ditaruh di DEPAN, alamat lama dipertahankan di belakangnya.
-                    // Lab yang sempat berpindah alamat lalu kembali ke alamat
-                    // semula tidak perlu ditemukan ulang dari awal.
-                    _config.ConsoleEndpoints.Insert(0, found);
-
-                    // Disimpan ke berkas, bukan hanya dipegang di memori.
-                    // Tanpa ini, layanan yang di-restart atau PC yang dimatikan
-                    // sore hari akan kembali ke alamat lama esok paginya dan
-                    // mengulang seluruh pencarian — pada empat puluh unit
-                    // sekaligus, tiap pagi.
+                    if (stoppingToken.IsCancellationRequested) return;
                     try
                     {
-                        ConfigStore.Save(RetrivaPaths.AgentConfigFile, _config);
-                        log.LogInformation("Alamat baru disimpan ke {File}", RetrivaPaths.AgentConfigFile);
+                        await RunAgainstAsync(endpoint, dynamicThumbprint, dynamicPort, stoppingToken);
+                        connected = true;
+                        attempt = 0;
+                        break;
                     }
-                    catch (IOException ex)
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception ex)
                     {
-                        log.LogWarning("Alamat baru tidak dapat disimpan ({Message}) — "
-                                     + "dipakai untuk sesi ini saja", ex.Message);
+                        log.LogWarning("Gagal terhubung ke endpoint tersimpan {Endpoint}: {Chain}",
+                            endpoint, DescribeChain(ex));
                     }
-
-                    attempt = 0;
-                    continue;
                 }
             }
 
-            var delay = JitteredRetryPolicy.EndpointRetryDelay(attempt);
-            log.LogInformation("Mencoba lagi dalam {Seconds:F0} detik", delay.TotalSeconds);
-            await Task.Delay(delay, stoppingToken);
+            // 2. Bila belum tersambung (karena berpindah jaringan/lab atau instalasi baru), cari Superadmin di jaringan lokal
+            if (!connected && !stoppingToken.IsCancellationRequested)
+            {
+                log.LogInformation("Mencari Superadmin di jaringan lokal (desentralisasi)...");
+                var discovered = await Task.Run(
+                    () => LabRediscovery.FindAny(TimeSpan.FromSeconds(3), log),
+                    stoppingToken);
+
+                if (discovered is not null)
+                {
+                    log.LogInformation("Menemukan Superadmin {LabName} di {Host}:{Port}",
+                        discovered.LabName, discovered.Host, discovered.Port);
+
+                    dynamicThumbprint = discovered.Thumbprint;
+                    dynamicPort = discovered.Port;
+
+                    if (!_config.ConsoleEndpoints.Contains(discovered.Host))
+                    {
+                        _config.ConsoleEndpoints.Insert(0, discovered.Host);
+                    }
+
+                    try
+                    {
+                        await RunAgainstAsync(discovered.Host, dynamicThumbprint, dynamicPort, stoppingToken);
+                        connected = true;
+                        attempt = 0;
+                    }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception ex)
+                    {
+                        log.LogWarning("Gagal terhubung ke Superadmin {Host}:{Port}: {Chain}",
+                            discovered.Host, discovered.Port, DescribeChain(ex));
+                    }
+                }
+            }
+
+            if (!connected)
+            {
+                attempt++;
+                var delay = JitteredRetryPolicy.EndpointRetryDelay(attempt);
+                log.LogInformation("Belum terhubung ke Superadmin mana pun. Mencoba lagi dalam {Seconds:F0} detik...", delay.TotalSeconds);
+                await Task.Delay(delay, stoppingToken);
+            }
         }
     }
 
@@ -392,9 +384,9 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     /// Kendali jarak jauh butuh alamat tujuan untuk aliran layar, dan panel
     /// admin tidak dapat menentukannya sendiri: mesin dengan beberapa kartu
     /// jaringan punya beberapa alamat, dan hanya agent yang tahu lewat mana ia
-    /// benar-benar sampai. Jadi agent yang mengisinya, bukan admin.
-    /// </summary>
     private string? _consoleHost;
+    private string? _activeThumbprint;
+    private int? _activePort;
 
     /// <summary>Mengambil bagian host dari URL endpoint konsol.</summary>
     private static string? HostFromEndpoint(string endpoint)
@@ -425,10 +417,12 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         _ => RemoteInputKind.KeyUp,
     };
 
-    private async Task RunAgainstAsync(string endpoint, CancellationToken ct)
+    private async Task RunAgainstAsync(string endpoint, string? thumbprint, int? port, CancellationToken ct)
     {
         _consoleHost = HostFromEndpoint(endpoint);
-        _connection = ConsoleConnection.Build(endpoint, _config, RetrivaProtocol.HubPath);
+        _activeThumbprint = !string.IsNullOrWhiteSpace(thumbprint) ? thumbprint : _config.ConsoleCertificateThumbprint;
+        _activePort = port is > 0 ? port : _config.ConsolePort;
+        _connection = ConsoleConnection.Build(endpoint, _config, RetrivaProtocol.HubPath, _activeThumbprint, _activePort);
         _connection.On<AgentCommand>("Execute", async command => await HandleAsync(command));
 
         /*
@@ -549,13 +543,16 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
         while (!ct.IsCancellationRequested
                && _connection is { State: not HubConnectionState.Disconnected })
         {
-            if (_connection.State == HubConnectionState.Connected)
+            if (_connection.State == HubConnectionState.Connected && !_session.ClientConnected)
             {
                 try
                 {
-                    // Saat terkunci, kirim ulang frame sebelum penguncian.
-                    var jpeg = _lockActive ? _lastThumbnail : ScreenThumbnail.Capture(log);
-                    if (!_lockActive && jpeg.Length > 0) _lastThumbnail = jpeg;
+                    // Tetap ambil tangkapan layar langsung karena LockOverlay telah dikecualikan
+                    // dari tangkapan layar (WDA_EXCLUDEFROMCAPTURE). Dengan demikian admin tetap
+                    // dapat memantau dan menginspeksi aktivitas mahasiswa di balik layar terkunci.
+                    var jpeg = ScreenThumbnail.Capture(log);
+                    if (jpeg.Length > 0) _lastThumbnail = jpeg;
+                    else if (_lastThumbnail.Length > 0) jpeg = _lastThumbnail;
 
                     if (jpeg.Length > 0)
                     {
@@ -595,6 +592,12 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             link.SpeedMbps > 0 ? $"{link.SpeedMbps} Mbps" : "kecepatan tidak dilaporkan",
             link.Mac);
 
+        string? tokenToSend = null;
+        if (!string.IsNullOrWhiteSpace(_activeThumbprint) && _config.LabTokens.TryGetValue(_activeThumbprint, out var tok))
+            tokenToSend = tok;
+        else if (!string.IsNullOrWhiteSpace(_config.DeviceToken))
+            tokenToSend = _config.DeviceToken;
+
         var response = await _connection.InvokeAsync<RegisterResponse>("Register", new RegisterRequest
         {
             UnitId = _unitId,
@@ -605,8 +608,8 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             LinkSpeedMbps = link.SpeedMbps,
             NetworkAdapter = link.Adapter,
             AgentVersion = typeof(AgentWorker).Assembly.GetName().Version?.ToString() ?? "1.0.0",
-            EnrollmentSecret = string.IsNullOrWhiteSpace(_config.DeviceToken) ? _config.EnrollmentSecret : null,
-            DeviceToken = _config.DeviceToken,
+            EnrollmentSecret = string.IsNullOrWhiteSpace(tokenToSend) ? _config.EnrollmentSecret : null,
+            DeviceToken = tokenToSend,
         }, ct);
 
         if (!response.Accepted)
@@ -615,13 +618,22 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
             return false;
         }
 
-        // Token diterbitkan sekali; setelah tersimpan, kode pendaftaran tidak dipakai lagi.
-        if (!string.IsNullOrWhiteSpace(response.IssuedDeviceToken)
-            && response.IssuedDeviceToken != _config.DeviceToken)
+        // Token diterbitkan sekali; simpan untuk lab ini agar dapat roaming antar-lab
+        if (!string.IsNullOrWhiteSpace(response.IssuedDeviceToken))
         {
+            if (!string.IsNullOrWhiteSpace(_activeThumbprint))
+                _config.LabTokens[_activeThumbprint] = response.IssuedDeviceToken;
+
             _config.DeviceToken = response.IssuedDeviceToken;
-            ConfigStore.Save(RetrivaPaths.AgentConfigFile, _config);
-            log.LogInformation("Token perangkat tersimpan");
+            try
+            {
+                ConfigStore.Save(RetrivaPaths.AgentConfigFile, _config);
+                log.LogInformation("Token perangkat tersimpan untuk lab ini");
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning("Gagal menyimpan token ke file konfigurasi: {Message}", ex.Message);
+            }
         }
 
         _unitId = response.ConfirmedUnitId ?? _unitId;
@@ -869,10 +881,12 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
                     break;
                 }
 
+                var targetHost = !string.IsNullOrWhiteSpace(c.AdminHost) ? c.AdminHost : _consoleHost;
+
                 var sent = await _session.SendAsync(new BeginRemoteSession
                 {
                     CommandId = command.CommandId,
-                    AdminHost = _consoleHost,
+                    AdminHost = targetHost,
                     Port = FramePacket.RemoteControlPort,
                     FrameRate = c.FrameRate,
                     AllowInput = c.AllowInput,
@@ -1032,7 +1046,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
     /// </summary>
     private async Task ReceiveFileAsync(PushFileCommand command)
     {
-        var downloader = new FileDownloader(_config, log, _session.UserDocumentsDirectory);
+        var downloader = new FileDownloader(_config, log, _session.UserDocumentsDirectory, _activeThumbprint, _unitId);
 
         var lastReport = 0L;
         var lastPercent = -1;
@@ -1102,24 +1116,66 @@ public sealed class AgentWorker(ILogger<AgentWorker> log) : BackgroundService
 
             log.LogInformation("Mengunduh pembaruan ke versi {Version} dari {Url}...", command.TargetVersion, url);
 
-            var tempInstaller = Path.Combine(Path.GetTempPath(), $"RetrivaUpdate-{command.TargetVersion}.exe");
+            var tempInstaller = UpdateService.GetStagingPath(command.TargetVersion);
             await UpdateService.DownloadInstallerAsync(url, tempInstaller, null, CancellationToken.None);
 
             log.LogInformation("Pembaruan berhasil diunduh ke {Path}. Menjalankan pemasangan senyap...", tempInstaller);
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = tempInstaller,
-                Arguments = "--silent --role lab",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            Process.Start(psi);
+            UpdateService.ApplySilentInstall(tempInstaller, "lab");
         }
         catch (Exception ex)
         {
             log.LogError(ex, "Gagal memasang pembaruan otomatis ke versi {Version}", command.TargetVersion);
+        }
+    }
+
+    /// <summary>
+    /// Loop berkala untuk memeriksa rilis baru di GitHub Releases secara mandiri.
+    /// PC lab tidak perlu terhubung ke Superadmin untuk memperbarui dirinya.
+    /// Ketika pembaruan sudah terunduh dan unit sedang idle (tidak ada siaran/remote),
+    /// agent mengeksekusi pemasangan senyap secara otomatis di latar belakang.
+    /// </summary>
+    private async Task PeriodicUpdateCheckerAsync(CancellationToken stoppingToken)
+    {
+        // Beri jeda 30 detik setelah service mulai agar inisialisasi jaringan selesai
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var update = await UpdateService.CheckGitHubReleaseAsync(cancellationToken: stoppingToken);
+                if (update != null)
+                {
+                    log.LogInformation("Pembaruan Retriva v{Version} tersedia di GitHub Releases. Mengunduh di latar belakang...", update.Version);
+                    var installer = await UpdateService.DownloadUpdateInBackgroundAsync(update, cancellationToken: stoppingToken);
+
+                    if (!string.IsNullOrWhiteSpace(installer) && File.Exists(installer))
+                    {
+                        log.LogInformation("Pembaruan v{Version} siap dipasang. Menunggu keadaan idle...", update.Version);
+
+                        // Tunggu sampai mesin tidak sedang dipakai (tidak terkunci, tidak sedang diremote)
+                        while (!stoppingToken.IsCancellationRequested)
+                        {
+                            var isBusy = _lockActive || _activeRemote;
+                            if (!isBusy)
+                            {
+                                log.LogInformation("Unit dalam keadaan idle. Menjalankan pemasangan pembaruan senyap ke versi {Version}...", update.Version);
+                                UpdateService.ApplySilentInstall(installer, "lab");
+                                return; // Service akan dihentikan dan dimulai ulang oleh installer
+                            }
+
+                            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                log.LogDebug(ex, "Pengecekan pembaruan otomatis berkala dilewati");
+            }
+
+            // Periksa kembali setiap 2 jam
+            await Task.Delay(TimeSpan.FromHours(2), stoppingToken);
         }
     }
 

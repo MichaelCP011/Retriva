@@ -1,21 +1,18 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 
-namespace Retriva.Agent;
+namespace Retriva.Media;
 
 /// <summary>
 /// Pratinjau layar beresolusi rendah untuk grid dashboard.
 ///
-/// Sengaja memakai GDI, bukan Windows.Graphics.Capture. Untuk gambar 240x135
-/// setiap dua detik, GDI sudah memadai dan jauh lebih sederhana. WGC baru
-/// dipakai di M4 untuk siaran layar, yang memang butuh 30 fps dan encoder keras.
-///
-/// CATATAN PENTING: saat agent berjalan sebagai Windows Service (Session 0),
-/// pengambilan gambar ini akan menghasilkan layar hitam karena isolasi sesi.
-/// Solusinya adalah proses pembantu di sesi pengguna — lihat catatan di README.
+/// Sengaja memakai GDI, bukan Windows.Graphics.Capture. Untuk gambar 480x270
+/// setiap dua detik, GDI sangat ringan, efisien, dan andal di sesi desktop pengguna.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public static class ScreenThumbnail
@@ -23,15 +20,8 @@ public static class ScreenThumbnail
     /// <summary>
     /// Lebar bawaan pratinjau.
     ///
-    /// Dinaikkan dari 240 setelah terbukti tidak terpakai: pada ukuran itu
-    /// layar 1920 menyusut delapan kali dan tidak ada satu pun teks yang
-    /// terbaca, sehingga pratinjaunya hanya membuktikan PC menyala — bukan
-    /// menunjukkan apa yang sedang dikerjakan.
-    ///
-    /// Ongkosnya kecil: 480x270 pada kualitas 65 sekitar 25 KB, dan 40 unit
-    /// setiap 2 detik berarti sekitar 4 Mbps di jaringan gigabit. Biaya
-    /// tangkapnya sendiri tidak berubah, karena yang mahal adalah membaca
-    /// layar, bukan mengecilkannya.
+    /// 480x270 pada kualitas 65 sekitar 25 KB, dan 40 unit
+    /// setiap 2 detik berarti sekitar 4 Mbps di jaringan gigabit.
     /// </summary>
     public const int DefaultWidth = 480;
 
@@ -41,9 +31,6 @@ public static class ScreenThumbnail
 
     /// <summary>
     /// Mengatur ukuran pratinjau dari konsol.
-    ///
-    /// Dibatasi agar satu konsol yang salah setel tidak dapat menyuruh 40 agent
-    /// mengirim gambar layar penuh setiap dua detik.
     /// </summary>
     public static void Resize(int width)
     {
@@ -54,9 +41,6 @@ public static class ScreenThumbnail
     private const int SM_CXSCREEN = 0;
     private const int SM_CYSCREEN = 1;
 
-    // DllImport, bukan LibraryImport: signature ini hanya berisi tipe blittable
-    // sehingga tidak ada marshalling yang perlu digenerate, dan kita terhindar
-    // dari keharusan menyalakan AllowUnsafeBlocks di seluruh project.
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
 

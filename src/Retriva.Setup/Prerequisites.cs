@@ -49,7 +49,7 @@ public sealed record Check(string Title, CheckState State, string Detail);
 /// </summary>
 public static class Prerequisites
 {
-    public static List<Check> RunAll(string coordinatorHost, int coordinatorPort)
+    public static List<Check> RunAll(string coordinatorHost, int coordinatorPort, bool isUpdate = false)
     {
         return
         [
@@ -57,7 +57,7 @@ public static class Prerequisites
             Architecture(),
             WindowsVersion(),
             DiskSpace(),
-            CoordinatorReachable(coordinatorHost, coordinatorPort),
+            CoordinatorReachable(coordinatorHost, coordinatorPort, isUpdate),
             WakeOnLan(),
             ExistingInstall(),
         ];
@@ -150,11 +150,15 @@ public static class Prerequisites
     /// sehingga pemeriksaan yang memakai ping akan berhasil pada mesin yang
     /// nanti gagal mendaftar.
     /// </summary>
-    private static Check CoordinatorReachable(string host, int port)
+    private static Check CoordinatorReachable(string host, int port, bool isUpdate = false)
     {
-        if (string.IsNullOrWhiteSpace(host))
-            return new Check($"Koneksi ke koordinator", CheckState.Unknown,
-                "alamat koordinator belum diisi");
+        if (isUpdate)
+            return new Check($"Koneksi ke koordinator", CheckState.Pass,
+                "dilewati karena mode pembaruan mandiri (update)");
+
+        if (string.IsNullOrWhiteSpace(host) || host == "127.0.0.1")
+            return new Check($"Koneksi ke koordinator", CheckState.Pass,
+                "Penemuan dinamis di jaringan lokal (desentralisasi) · otomatis mendeteksi Superadmin");
 
         var title = $"Koneksi ke {host}:{port}";
         var watch = Stopwatch.StartNew();

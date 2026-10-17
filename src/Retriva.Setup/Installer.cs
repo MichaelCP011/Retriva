@@ -25,6 +25,7 @@ public static class Installer
         var plan = new InstallPlan(log);
         var dir = profile.InstallDir;
         var setupExe = Path.Combine(dir, "RetrivaSetup.exe");
+        var uninstallExe = Path.Combine(dir, "Uninstall.exe");
 
         /*
             Berkas yang sudah ada TIDAK dihapus sebagai langkah tersendiri.
@@ -56,11 +57,12 @@ public static class Installer
                 if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
             });
 
-        plan.Add("Menyalin installer untuk keperluan uninstall",
+        plan.Add("Menyalin installer dan uninstaller",
             apply: () =>
             {
                 /*
-                    Installer menyalin DIRINYA SENDIRI ke folder pemasangan.
+                    Installer menyalin DIRINYA SENDIRI ke folder pemasangan sebagai
+                    RetrivaSetup.exe dan Uninstall.exe.
 
                     Uninstall dijalankan dari Add/Remove Programs, kapan saja,
                     berbulan-bulan kemudian. Berkas installer yang dipakai hari
@@ -74,8 +76,16 @@ public static class Installer
 
                 if (!string.Equals(source, setupExe, StringComparison.OrdinalIgnoreCase))
                     File.Copy(source, setupExe, overwrite: true);
+
+                SystemActions.CreateHardLinkOrCopy(setupExe, uninstallExe);
+                SystemActions.RegisterAppPath("Uninstall.exe", uninstallExe);
             },
-            undo: () => { if (File.Exists(setupExe)) File.Delete(setupExe); });
+            undo: () =>
+            {
+                if (File.Exists(setupExe)) File.Delete(setupExe);
+                if (File.Exists(uninstallExe)) File.Delete(uninstallExe);
+                SystemActions.UnregisterAppPath("Uninstall.exe");
+            });
 
         if (profile.Role == SetupRole.Lab)
         {
@@ -111,10 +121,20 @@ public static class Installer
                 arguments: "--logs"),
             undo: () => Shortcut.Delete(logsLink));
 
+        var uninstallLink = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+            $"Copot {profile.ProductName}.lnk");
+
+        plan.Add("Membuat pintasan copot pemasangan",
+            apply: () => Shortcut.Create(
+                uninstallLink, uninstallExe, dir,
+                $"Mencopot {profile.ProductName} dan seluruh pengaturannya"),
+            undo: () => Shortcut.Delete(uninstallLink));
+
         plan.Add("Mendaftarkan di Add/Remove Programs",
             apply: () => SystemActions.RegisterUninstall(
                 profile.UninstallKey, profile.ProductName, SetupProfile.Version,
-                SetupProfile.Publisher, dir, setupExe, SystemActions.DirectorySize(dir)),
+                SetupProfile.Publisher, dir, uninstallExe, SystemActions.DirectorySize(dir)),
             undo: () => SystemActions.UnregisterUninstall(profile.UninstallKey));
 
         return plan;
@@ -126,7 +146,11 @@ public static class Installer
         var clientExe = Path.Combine(dir, "Client", "RetrivaClient.exe");
 
         plan.Add("Menulis konfigurasi agent",
-            apply: () => profile.WriteAgentConfig(log),
+            apply: () =>
+            {
+                profile.WriteAgentConfig(log);
+                SystemActions.GrantUsersModify(SetupProfile.DataDir);
+            },
 
             // Konfigurasi TIDAK dihapus saat pembatalan. Di dalamnya token
             // perangkat yang mungkin sudah ada sejak pemasangan sebelumnya, dan
@@ -165,17 +189,38 @@ public static class Installer
             apply: () => SystemActions.StartService(SetupProfile.ServiceName),
             undo: () => SystemActions.StopService(SetupProfile.ServiceName, TimeSpan.FromSeconds(15)));
 
+        var clientMenuLink = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+            "Retriva Client.lnk");
+
+        var clientDesktopLink = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+            "Retriva Client.lnk");
+
+        var clientDir = Path.GetDirectoryName(clientExe) ?? dir;
+
+        plan.Add("Membuat pintasan Retriva Client di Start Menu",
+            apply: () => Shortcut.Create(clientMenuLink, clientExe, clientDir, "Retriva Client (PC Mahasiswa)"),
+            undo: () => Shortcut.Delete(clientMenuLink));
+
+        plan.Add("Membuat pintasan Retriva Client di Desktop",
+            apply: () => Shortcut.Create(clientDesktopLink, clientExe, clientDir, "Retriva Client (PC Mahasiswa)"),
+            undo: () => Shortcut.Delete(clientDesktopLink));
+
+        plan.Add("Mendaftarkan Retriva Client di pencarian Windows",
+            apply: () =>
+            {
+                SystemActions.RegisterAppPath("RetrivaClient.exe", clientExe);
+                SystemActions.RegisterAppPath("Retriva.exe", clientExe);
+            },
+            undo: () =>
+            {
+                SystemActions.UnregisterAppPath("RetrivaClient.exe");
+                SystemActions.UnregisterAppPath("Retriva.exe");
+            });
+
         /*
             Pintasan "Pindah lab", supaya fiturnya dapat DITEMUKAN.
-
-            Konfigurasi ulang berjalan lewat "RetrivaSetup.exe --reconfigure",
-            dan argumen baris perintah yang tidak tertulis di mana pun sama saja
-            dengan fitur yang tidak ada. Orang yang memindahkan lab tidak akan
-            menebaknya; ia akan memasang ulang keempat puluh PC seperti
-            sebelumnya, yang justru pekerjaan yang ingin dihapus fitur ini.
-
-            Diletakkan di Start Menu bersama pintasan panel, dan dihapus saat
-            uninstall bersama sisanya.
         */
         var reconfigureLink = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
@@ -199,23 +244,14 @@ public static class Installer
                 profile.WritePanelConfig(log);
 
                 /*
-                    Hak ubah diberikan ke pengguna biasa, dan HANYA untuk berkas ini.
+                    Hak ubah diberikan ke pengguna biasa untuk seluruh folder data ProgramData\Retriva.
 
-                    Installer berjalan terelevasi, panel tidak — dosen membukanya
-                    setiap kelas dan tidak seharusnya menghadapi UAC. Berkas yang
-                    dibuat proses terelevasi di ProgramData dimiliki grup
-                    Administrators, jadi tanpa baris ini panel dapat menyambung
-                    dan disetujui asisten, lalu GAGAL menyimpan lab yang baru
-                    dikenalinya. Pada pembukaan berikutnya ia kembali "belum
-                    tertaut", dan pendaftarannya harus diulang dari awal.
-
-                    Hanya panel.json. Basis data, sertifikat, dan console.json
-                    dibuat oleh panel itu sendiri saat pertama berjalan, jadi
-                    pemiliknya memang penggunanya — dan kode pendaftaran serta
-                    kunci privat di dalamnya tidak perlu terbuka untuk seluruh
-                    pengguna mesin.
+                    Installer berjalan terelevasi (Administrator), sedangkan panel admin
+                    dijalankan oleh pengguna biasa (dosen/asisten) tanpa UAC. Seluruh berkas
+                    seperti panel.json, console.json, sertifikat, dan basis data harus dapat
+                    ditulis dan diubah oleh proses panel admin biasa.
                 */
-                SystemActions.GrantUsersModify(Path.Combine(SetupProfile.DataDir, "panel.json"));
+                SystemActions.GrantUsersModify(SetupProfile.DataDir);
             },
 
             // Sama seperti agent.json: di dalamnya daftar lab yang pernah
@@ -268,15 +304,25 @@ public static class Installer
                 undo: () => SystemActions.RemoveFirewallRule(FirewallPanelIn));
         }
 
+        var panelMenuLink = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+            "Retriva Panel Admin.lnk");
+
+        var panelDesktopLink = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+            "Retriva Panel Admin.lnk");
+
         plan.Add("Membuat pintasan di Start Menu",
-            apply: () => Shortcut.Create(
-                Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
-                    "Retriva Panel Admin.lnk"),
-                panelExe, dir, "Panel admin Retriva"),
-            undo: () => Shortcut.Delete(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
-                "Retriva Panel Admin.lnk")));
+            apply: () => Shortcut.Create(panelMenuLink, panelExe, dir, "Panel admin Retriva"),
+            undo: () => Shortcut.Delete(panelMenuLink));
+
+        plan.Add("Membuat pintasan di Desktop",
+            apply: () => Shortcut.Create(panelDesktopLink, panelExe, dir, "Panel admin Retriva"),
+            undo: () => Shortcut.Delete(panelDesktopLink));
+
+        plan.Add("Mendaftarkan Panel Admin di pencarian Windows",
+            apply: () => SystemActions.RegisterAppPath("Retriva.exe", panelExe),
+            undo: () => SystemActions.UnregisterAppPath("Retriva.exe"));
     }
 
     /// <summary>
@@ -308,6 +354,18 @@ public static class Installer
             Try("aturan firewall keluar dihapus", () => SystemActions.RemoveFirewallRule(FirewallOut));
             Try("aturan siaran dihapus", () => SystemActions.RemoveFirewallRule(FirewallBroadcast));
 
+            Try("pintasan klien di Start Menu dihapus", () => Shortcut.Delete(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+                "Retriva Client.lnk")));
+            Try("pintasan klien di Desktop dihapus", () => Shortcut.Delete(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+                "Retriva Client.lnk")));
+            Try("registrasi pencarian klien dihapus", () =>
+            {
+                SystemActions.UnregisterAppPath("RetrivaClient.exe");
+                SystemActions.UnregisterAppPath("Retriva.exe");
+            });
+
             Try("pintasan pindah lab dihapus", () => Shortcut.Delete(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
                 "Retriva — Pindah lab.lnk")));
@@ -325,9 +383,13 @@ public static class Installer
             // yang pernah memakainya tidak meninggalkan aturan yatim di firewall.
             Try("aturan penemuan lab lama dihapus",
                 () => SystemActions.RemoveFirewallRule("Retriva penemuan lab"));
-            Try("pintasan dihapus", () => Shortcut.Delete(Path.Combine(
+            Try("pintasan panel di Start Menu dihapus", () => Shortcut.Delete(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
                 "Retriva Panel Admin.lnk")));
+            Try("pintasan panel di Desktop dihapus", () => Shortcut.Delete(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+                "Retriva Panel Admin.lnk")));
+            Try("registrasi pencarian panel dihapus", () => SystemActions.UnregisterAppPath("Retriva.exe"));
             Try("panel dihentikan", () => StopProcess("Retriva", log));
         }
 
@@ -335,6 +397,15 @@ public static class Installer
         Try("pintasan kumpulkan log dihapus", () => Shortcut.Delete(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
             "Retriva — Kumpulkan log.lnk")));
+
+        Try("pintasan copot pemasangan dihapus", () =>
+        {
+            Shortcut.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), $"Copot {profile.ProductName}.lnk"));
+            Shortcut.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Copot Retriva Client.lnk"));
+            Shortcut.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Copot Retriva Lab (PC Mahasiswa).lnk"));
+            Shortcut.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Copot Retriva Panel Admin.lnk"));
+            SystemActions.UnregisterAppPath("Uninstall.exe");
+        });
 
         Try("entri Add/Remove Programs dihapus",
             () => SystemActions.UnregisterUninstall(profile.UninstallKey));

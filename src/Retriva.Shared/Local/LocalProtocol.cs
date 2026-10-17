@@ -36,6 +36,7 @@ public static class LocalProtocol
 [JsonDerivedType(typeof(UnitSelfName),      "unit.selfname")]
 [JsonDerivedType(typeof(BroadcastStats),    "broadcast.stats")]
 [JsonDerivedType(typeof(ExamObservation),  "exam.observed")]
+[JsonDerivedType(typeof(ScreenThumbnailReport), "screen.thumbnail")]
 public abstract record ClientMessage
 {
     public DateTimeOffset SentAt { get; init; } = DateTimeOffset.UtcNow;
@@ -155,6 +156,18 @@ public sealed record StudentHelp : ClientMessage
 public sealed record UnitSelfName : ClientMessage
 {
     public required string Name { get; init; }
+}
+
+/// <summary>
+/// Pratinjau berkala dari klien di sesi desktop interaktif.
+/// Agent berjalan di Session 0 dan tidak dapat menangkap layar secara langsung,
+/// sehingga tangkapan diambil oleh klien di sesi pengguna.
+/// </summary>
+public sealed record ScreenThumbnailReport : ClientMessage
+{
+    public required byte[] JpegData { get; init; }
+    public required int Width { get; init; }
+    public required int Height { get; init; }
 }
 
 /* ---------------- Agent → Klien ---------------- */

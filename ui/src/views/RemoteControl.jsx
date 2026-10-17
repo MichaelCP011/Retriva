@@ -65,6 +65,19 @@ export default function RemoteControl({ unit, thumb, activity = [], remote, thre
   const live = remote && unit && remote.unitId === unit.unitId ? remote : null;
   const controlling = live?.allowInput === true;
 
+  // Pastikan pelepasan mouse selalu terkirim meski kursor bergerak keluar panggung saat menyeret
+  useEffect(() => {
+    if (!controlling) return undefined;
+    const onWindowMouseUp = (e) => {
+      if (stageRef.current) {
+        const point = fractionOf(e, stageRef.current);
+        if (point) input({ kind: 'MouseUp', ...point, button: e.button });
+      }
+    };
+    window.addEventListener('mouseup', onWindowMouseUp);
+    return () => window.removeEventListener('mouseup', onWindowMouseUp);
+  }, [controlling]);
+
   // Fokus dipindah ke panggung begitu kendali aktif, kalau tidak ketikan pertama
   // masuk ke dokumen dan hilang tanpa jejak.
   useEffect(() => {
@@ -421,10 +434,18 @@ export default function RemoteControl({ unit, thumb, activity = [], remote, thre
             )}
             {!live && thumb && <div className="live quiet"><b />pratinjau · 0,5 fps</div>}
 
-            {locked && !live && (
-              <div className="veil">
-                <LockKey size={22} />
-                Layar terkunci — admin tetap dapat melihat
+            {locked && (
+              <div className="live" style={{
+                top: 8,
+                right: 8,
+                left: 'auto',
+                background: 'rgba(234, 88, 12, 0.85)',
+                borderColor: '#F97316',
+                color: '#FFF',
+                zIndex: 2,
+              }}>
+                <LockKey size={13} weight="fill" />
+                LAYAR MAHASISWA TERKUNCI (MODE INSPEKSI)
               </div>
             )}
           </div>

@@ -164,6 +164,7 @@ const TITLES = {
 function LiveFrame({ url, onLoad }) {
   const ref = useRef(null);
   const alive = useRef(true);
+  const [hasFrame, setHasFrame] = useState(false);
 
   useEffect(() => {
     alive.current = true;
@@ -179,14 +180,47 @@ function LiveFrame({ url, onLoad }) {
       }, 66);
     };
 
-    img.addEventListener('load', () => { onLoad?.(); next(); });
+    img.addEventListener('load', () => {
+      if (!hasFrame) setHasFrame(true);
+      onLoad?.();
+      next();
+    });
     img.addEventListener('error', next);
     img.src = `${url}?t=${Date.now()}`;
 
     return () => { alive.current = false; clearTimeout(timer); };
   }, [url]);
 
-  return <img ref={ref} className="cl-live-img" alt="Siaran layar dosen" draggable={false} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {!hasFrame && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', background: '#0a0a0c',
+          color: 'rgba(255,255,255,0.7)', gap: 12, padding: 20, textAlign: 'center', zIndex: 1
+        }}>
+          <div style={{
+            width: 28, height: 28, border: '3px solid rgba(255,255,255,0.15)',
+            borderTopColor: '#e53935', borderRadius: '50%',
+            animation: 'cl-spin 1s linear infinite'
+          }} />
+          <span style={{ fontSize: 13, fontWeight: 500 }}>Menghubungkan ke siaran layar...</span>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>Menunggu paket data dari pemancar (UDP Multicast)</span>
+        </div>
+      )}
+      <img
+        ref={ref}
+        className="cl-live-img"
+        alt="Siaran layar dosen"
+        draggable={false}
+        style={{
+          visibility: hasFrame ? 'visible' : 'hidden',
+          transition: 'opacity 0.2s ease',
+          opacity: hasFrame ? 1 : 0
+        }}
+      />
+    </div>
+  );
 }
 
 export default function ClientApp() {

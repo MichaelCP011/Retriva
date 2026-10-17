@@ -67,6 +67,9 @@ public sealed class SetupProfile
     /// </summary>
     public bool HostsLab { get; set; }
 
+    /// <summary>Nama lab untuk koordinator (Superadmin), misal: LAB Jaringan, LAB Basis Data.</summary>
+    public string LabName { get; set; } = "Laboratorium Information Retrieval";
+
     public string DisplayName { get; set; } = Environment.MachineName;
 
     /// <summary>
@@ -121,17 +124,11 @@ public sealed class SetupProfile
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Retriva");
 
     public const string ServiceName = "RetrivaAgent";
-    public const string Version = "1.0.0";
+    public const string Version = Retriva.Shared.RetrivaVersion.Current;
     public const string Publisher = "Laboratorium Information Retrieval";
 
     /// <summary>
     /// Menuliskan agent.json TANPA menghapus token perangkat yang sudah ada.
-    ///
-    /// Token adalah satu-satunya bukti bahwa unit ini pernah disetujui. Menimpa
-    /// berkasnya pada pemasangan ulang akan membuat unit mendaftar sebagai unit
-    /// baru — kehilangan namanya beserta seluruh riwayat percakapan, berkas, dan
-    /// catatan ujiannya. Tanpa satu galat pun; yang terlihat hanya unit bernama
-    /// aneh yang riwayatnya mendadak kosong.
     /// </summary>
     public void WriteAgentConfig(Action<string>? log = null)
     {
@@ -152,9 +149,6 @@ public sealed class SetupProfile
             }
             catch (JsonException ex)
             {
-                // agent.json rusak diperlakukan sebagai tanpa token, dan itu
-                // dicatat. Diam-diam menimpanya berarti kehilangan token yang
-                // mungkin masih bisa diselamatkan dengan tangan.
                 log?.Invoke($"agent.json lama tidak terbaca ({ex.Message}) — token tidak dipertahankan");
             }
 
@@ -163,19 +157,21 @@ public sealed class SetupProfile
                 : "Token perangkat ditemukan dan dipertahankan.");
         }
 
+        // Jika Host loopback atau kosong, kosongkan consoleEndpoints agar agent memakai penemuan dinamis beacon
+        var endpoints = string.IsNullOrWhiteSpace(Host) || Host == "127.0.0.1"
+            ? Array.Empty<string>()
+            : new[] { Host };
+
         var config = new Dictionary<string, object?>
         {
-            ["consoleEndpoints"] = new[] { Host },
+            ["consoleEndpoints"] = endpoints,
             ["consolePort"] = Port,
             ["enrollmentSecret"] = EnrollmentSecret,
             ["consoleCertificateThumbprint"] = Thumbprint,
             ["powerControlMode"] = "real",
+            ["unitIdOverride"] = string.IsNullOrWhiteSpace(DisplayName) ? Environment.MachineName : DisplayName.Trim(),
         };
 
-        // Hanya ditulis bila memang dipilih. Menulis nilai bawaannya secara
-        // eksplisit akan membekukan folder itu ke dalam berkas, sehingga
-        // perubahan bawaan di versi berikutnya tidak berlaku untuk mesin yang
-        // sebenarnya tidak pernah memilih apa pun.
         if (!string.IsNullOrWhiteSpace(FileInboxDir))
             config["fileInboxDirectory"] = FileInboxDir.Trim();
 
@@ -188,17 +184,58 @@ public sealed class SetupProfile
     }
 
     /// <summary>
-    /// Menuliskan panel.json bila belum ada.
-    ///
-    /// TIDAK MENIMPA yang sudah ada, karena di dalamnya tersimpan daftar lab
-    /// yang pernah menyetujui panel ini beserta token perangkatnya. Menimpanya
-    /// memaksa dosen mendaftar ulang ke setiap lab tempat ia mengajar, dan
-    /// menunggu asisten menyetujuinya lagi satu per satu.
+    /// Menuliskan console.json saat peran Superadmin dipilih.
+    /// </summary>
+    public void WriteConsoleConfig(Action<string>? log = null)
+    {
+        Directory.CreateDirectory(DataDir);
+        var file = Path.Combine(DataDir, "console.json");
+
+        var config = new Dictionary<string, object?>
+        {
+            ["labName"] = string.IsNullOrWhiteSpace(LabName) ? "Laboratorium Information Retrieval" : LabName.Trim(),
+            ["listenPort"] = 8443,
+            ["dataDirectory"] = DataDir,
+            ["requireStudentLogin"] = true,
+            ["allowGuestAccess"] = true,
+            ["studentsMayRejectControl"] = false,
+        };
+
+        if (File.Exists(file))
+        {
+            try
+            {
+                using var existing = JsonDocument.Parse(File.ReadAllText(file));
+                foreach (var prop in existing.RootElement.EnumerateObject())
+                {
+                    if (prop.NameEquals("labName") && !string.IsNullOrWhiteSpace(LabName)) continue;
+                    config[prop.Name] = prop.Value.Clone();
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"console.json lama dibaca dengan kendala: {ex.Message}");
+            }
+        }
+
+        File.WriteAllText(file, JsonSerializer.Serialize(config,
+            new JsonSerializerOptions { WriteIndented = true }));
+
+        log?.Invoke($"console.json ditulis ke {file} (Nama Lab: {config["labName"]})");
+    }
+
+    /// <summary>
+    /// Menuliskan panel.json bila belum ada atau memperbarui perannya.
     /// </summary>
     public void WritePanelConfig(Action<string>? log = null)
     {
         Directory.CreateDirectory(DataDir);
         var file = Path.Combine(DataDir, "panel.json");
+
+        if (HostsLab)
+        {
+            WriteConsoleConfig(log);
+        }
 
         if (File.Exists(file))
         {

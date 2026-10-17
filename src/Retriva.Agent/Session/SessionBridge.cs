@@ -74,6 +74,9 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
     /// <summary>Pengamatan dari klien selama sesi ujian berjalan.</summary>
     public event Action<ExamObservation>? ExamObserved;
 
+    /// <summary>Pratinjau layar berkala dari klien di sesi pengguna.</summary>
+    public event Action<ScreenThumbnailReport>? ThumbnailReceived;
+
     /// <summary>
     /// Aturan akses terakhir yang diketahui koordinator.
     ///
@@ -279,6 +282,10 @@ public sealed class SessionBridge(ILogger log) : IAsyncDisposable
                     log.LogInformation("Nama unit dari mahasiswa: {Name}",
                         string.IsNullOrWhiteSpace(self.Name) ? "(dihapus)" : self.Name);
                     SelfNameReceived?.Invoke(self.Name);
+                    break;
+
+                case ScreenThumbnailReport thumb:
+                    ThumbnailReceived?.Invoke(thumb);
                     break;
             }
         }

@@ -141,18 +141,15 @@ public sealed class LockOverlay : Window
         // Handle jendela baru ada setelah SourceInitialized.
         SourceInitialized += (_, _) =>
         {
-            // Sengaja TIDAK aktif secara bawaan.
-            //
-            // WDA_EXCLUDEFROMCAPTURE seharusnya hanya menyembunyikan jendela dari
-            // API tangkapan layar, tetapi pada sebagian kombinasi GPU dan driver
-            // tampilan, jalur monitor fisik ikut dianggap capture sehingga overlay
-            // hilang sama sekali. Itu terjadi di mesin pengembangan proyek ini.
-            //
-            // Tujuan aslinya — admin tetap melihat desktop asli di balik layar
-            // terkunci — kini dicapai dengan cara lain: agent membekukan pratinjau
-            // pada frame terakhir sebelum dikunci. Tidak bergantung driver sama sekali.
-            if (Environment.GetEnvironmentVariable("RETRIVA_OVERLAY_CAPTURE") == "hidden")
-                ExcludeFromScreenCapture();
+            // Selalu kecualikan dari tangkapan layar agar monitor fisik mahasiswa
+            // menampilkan layar terkunci, sementara admin dapat melihat dan menginspeksi
+            // desktop asli di baliknya.
+            ExcludeFromScreenCapture();
+
+            // Pasang gaya WS_EX_TRANSPARENT agar klik mouse yang disuntikkan admin
+            // tembus ke aplikasi di balik overlay (Chrome, editor, dll.), sementara
+            // input fisik mahasiswa tetap ditahan oleh blocker.
+            EnableClickThrough();
         };
     }
 
@@ -188,14 +185,38 @@ public sealed class LockOverlay : Window
         }
     }
 
+    private void EnableClickThrough()
+    {
+        try
+        {
+            var handle = new WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;
+
+            var exStyle = GetWindowLong(handle, GWL_EXSTYLE);
+            SetWindowLong(handle, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+        }
+        catch (Exception ex)
+        {
+            Diagnostic?.Invoke($"click-through overlay gagal: {ex.Message}");
+        }
+    }
+
     /// <summary>Pesan teknis untuk ditampilkan di jendela status klien.</summary>
     public event Action<string>? Diagnostic;
 
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
     /*
         Lambang di layar terkunci memakai logo ADMIN, bukan logo klien.
@@ -264,6 +285,8 @@ public sealed class LockOverlay : Window
             Show();
             Activate();
             Focus();
+            ExcludeFromScreenCapture();
+            EnableClickThrough();
 
             Diagnostic?.Invoke(
                 $"overlay: {Width:F0}x{Height:F0} di ({Left:F0},{Top:F0}) · terlihat={IsVisible}");

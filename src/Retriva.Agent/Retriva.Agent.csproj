@@ -17,5 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Retriva.Shared\Retriva.Shared.csproj" />
+    <ProjectReference Include="..\Retriva.Media\Retriva.Media.csproj" />
   </ItemGroup>
 </Project>

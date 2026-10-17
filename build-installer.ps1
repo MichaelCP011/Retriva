@@ -1,4 +1,4 @@
-﻿<#
+<#
     PENTING: BERKAS INI HARUS DISIMPAN DENGAN BOM UTF-8.
 
     Windows PowerShell 5.1 — yang masih bawaan Windows 11 — membaca .ps1 tanpa
@@ -77,7 +77,7 @@ function Publish-Project($project, $target) {
     dotnet publish "src\$project\$project.csproj" `
         --configuration Release `
         --runtime win-x64 `
-        --self-contained false `
+        --self-contained true `
         --output $out `
         --nologo
 
@@ -174,11 +174,12 @@ if (Test-Path $setupOut) { Remove-Item $setupOut -Recurse -Force }
 dotnet publish "src\Retriva.Setup\Retriva.Setup.csproj" `
     --configuration Release `
     --runtime win-x64 `
-    --self-contained false `
+    --self-contained true `
     --output $setupOut `
     --nologo `
     -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true
 
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish gagal untuk Retriva.Setup (exit $LASTEXITCODE)" }
 
@@ -205,15 +206,36 @@ if ($actual -lt $expected) {
           "($([math]::Round($expected/1MB,1)) MB) - resource tidak ikut tertanam"
 }
 
-$final = Join-Path $dist 'RetrivaSetup.exe'
-Copy-Item $built $final -Force
+$version = "1.0.1"
+$versionFile = Join-Path $PSScriptRoot 'src\Retriva.Shared\RetrivaVersion.cs'
+if (Test-Path $versionFile) {
+    $match = Select-String -Path $versionFile -Pattern 'public const string Current = "([^"]+)";'
+    if ($match -and $match.Matches.Groups.Count -gt 1) {
+        $version = $match.Matches.Groups[1].Value
+    }
+}
 
-Write-Host ("`nSelesai: {0} ({1:N1} MB)" -f $final, ($actual / 1MB)) -ForegroundColor Green
+$versioned = Join-Path $dist "RetrivaSetup-$version.exe"
+Copy-Item $built $versioned -Force
+Ok ("Berkas berversi: $versioned")
+
+$final = Join-Path $dist 'RetrivaSetup.exe'
+try {
+    Copy-Item $built $final -Force
+} catch {
+    $alt = Join-Path $dist 'RetrivaSetup-new.exe'
+    Copy-Item $built $alt -Force
+    Write-Warning "release\RetrivaSetup.exe sedang dibuka oleh proses lain. Berkas baru disimpan sebagai release\RetrivaSetup-new.exe. Tutup aplikasi yang sedang berjalan untuk memperbarui RetrivaSetup.exe."
+    $final = $alt
+}
+
+Write-Host ("`nSelesai: {0} ({1:N1} MB)" -f $versioned, ($actual / 1MB)) -ForegroundColor Green
+Write-Host ("Juga tersedia sebagai: {0}" -f $final) -ForegroundColor Green
 Write-Host @"
 
 PC pertama, dengan wizard:
 
-    .\release\RetrivaSetup.exe
+    .\release\RetrivaSetup-$version.exe
 
 PC mahasiswa berikutnya, senyap. Ketiga nilai ada di layar Konfigurasi
 pada panel Superadmin:

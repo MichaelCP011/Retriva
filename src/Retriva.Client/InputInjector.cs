@@ -126,7 +126,7 @@ public sealed class InputInjector
                 {
                     dx = Math.Clamp(absoluteX, 0, 65535),
                     dy = Math.Clamp(absoluteY, 0, 65535),
-                    dwFlags = flags | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                    dwFlags = flags | MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
                     dwExtraInfo = Signature,
                 },
             },

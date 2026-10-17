@@ -189,6 +189,18 @@ public static class SystemActions
         catch (Exception) { /* sudah tidak ada */ }
     }
 
+    public static long DirectorySize(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path)) return 0;
+            return new DirectoryInfo(path)
+                .EnumerateFiles("*", SearchOption.AllDirectories)
+                .Sum(fi => fi.Length);
+        }
+        catch { return 0; }
+    }
+
     /* ================= autostart klien ================= */
 
     private const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
@@ -247,25 +259,62 @@ public static class SystemActions
         // *S-1-5-32-545 adalah SID grup Users, dipakai alih-alih nama "Users"
         // supaya perintahnya tetap benar di Windows berbahasa lain — di sana
         // grupnya bernama "Usuarios", "Utilisateurs", dan seterusnya.
-        var (code, output) = Run("icacls", $"\"{path}\" /grant *S-1-5-32-545:(M) /C");
+        var isDir = Directory.Exists(path);
+        var perm = isDir ? "*S-1-5-32-545:(OI)(CI)M" : "*S-1-5-32-545:(M)";
+        var extra = isDir ? " /T" : "";
+        var (code, output) = Run("icacls", $"\"{path}\" /grant {perm}{extra} /C");
 
         if (code != 0) throw new InvalidOperationException($"icacls gagal: {output}");
     }
 
-    /* ================= berkas ================= */
+    /* ================= App Paths (Pencarian Windows & Taskbar) ================= */
 
-    /// <summary>Ukuran seluruh isi folder, untuk EstimatedSize.</summary>
-    public static long DirectorySize(string path)
+    private const string AppPathsRoot = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths";
+
+    /// <summary>
+    /// Mendaftarkan file exe ke Windows App Paths registry agar dapat langsung ditemukan
+    /// lewat pencarian taskbar (Start Menu / Windows Search) dan dialog Run (Win+R).
+    /// </summary>
+    public static void RegisterAppPath(string exeName, string exePath)
     {
         try
         {
-            return new DirectoryInfo(path)
-                .EnumerateFiles("*", SearchOption.AllDirectories)
-                .Sum(f => f.Length);
+            using var key = Registry.LocalMachine.CreateSubKey($@"{AppPathsRoot}\{exeName}", true);
+            if (key is not null)
+            {
+                key.SetValue("", exePath);
+                var dir = Path.GetDirectoryName(exePath);
+                if (!string.IsNullOrWhiteSpace(dir)) key.SetValue("Path", dir);
+            }
         }
-        catch (Exception)
+        catch (Exception) { /* tidak fatal */ }
+    }
+
+    public static void UnregisterAppPath(string exeName)
+    {
+        try
         {
-            return 0;
+            Registry.LocalMachine.DeleteSubKeyTree($@"{AppPathsRoot}\{exeName}", false);
         }
+        catch (Exception) { /* sudah tidak ada */ }
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+    public static void CreateHardLinkOrCopy(string sourceFile, string targetFile)
+    {
+        if (File.Exists(targetFile))
+        {
+            try { File.Delete(targetFile); } catch { }
+        }
+
+        try
+        {
+            if (CreateHardLink(targetFile, sourceFile, IntPtr.Zero)) return;
+        }
+        catch { }
+
+        File.Copy(sourceFile, targetFile, overwrite: true);
     }
 }

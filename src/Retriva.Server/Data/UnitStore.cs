@@ -103,42 +103,8 @@ public sealed class UnitStore
         if (IsBlocked(connection, tx, unitId))
             return (EnrollmentResult.Blocked, null, unitId);
 
-        if (!string.IsNullOrWhiteSpace(request.DeviceToken))
+        if (!string.IsNullOrWhiteSpace(request.DeviceToken) && known is not null && FixedTimeEquals(known.Value.Token, request.DeviceToken))
         {
-            if (known is null || !FixedTimeEquals(known.Value.Token, request.DeviceToken))
-                return (EnrollmentResult.TokenMismatch, null, unitId);
-
-            /*
-                MAC YANG BERUBAH DICATAT, TIDAK MENOLAK.
-
-                Sebelumnya perbedaan MAC menolak pendaftaran, dengan alasan "IP
-                bisa tertukar antar PC tanpa disadari; MAC yang membongkarnya".
-                Alasan itu keliru dalam dua hal sekaligus.
-
-                Pertama, MAC tidak membuktikan apa pun. Ia dikirim oleh agent
-                sebagai teks biasa dan dapat diubah di Windows lewat properti
-                adapter, tanpa hak administrator pada banyak kartu. Siapa pun
-                yang sanggup mencuri token perangkat sanggup pula menyalin MAC
-                yang tertera di panel. Yang membuktikan identitas adalah token,
-                dan token itulah yang sudah cocok saat baris ini tercapai.
-
-                Kedua, MAC memang berubah pada mesin yang tidak melakukan apa
-                pun yang salah: kartu jaringan diganti, laptop dipasang ke dok,
-                atau unit berpindah dari Wi-Fi ke kabel. Menolaknya berarti
-                mengunci PC yang sehat sampai ada yang menghapus barisnya dari
-                basis data — dan pesan yang muncul menunjuk ke perangkat keras,
-                bukan ke penyebab sesungguhnya.
-
-                Kejadian yang membuktikannya justru berasal dari sini: perbaikan
-                pemilihan kartu jaringan membuat agent melaporkan MAC yang benar
-                setelah sebelumnya melaporkan MAC kartu virtual. Seluruh unit
-                yang sudah terdaftar langsung tertolak — bukan karena ada yang
-                mencurigakan, melainkan karena catatannya yang lama salah.
-
-                Jadi perubahannya dicatat, bukan diadili. Baris jejak aktivitas
-                membuat MAC yang berpindah tetap terlihat oleh asisten yang
-                memang mencurigainya, tanpa mematikan lab yang tidak bersalah.
-            */
             var previousMac = known.Value.Mac;
             var macChanged = !string.IsNullOrWhiteSpace(previousMac)
                 && !string.Equals(previousMac, request.MacAddress, StringComparison.OrdinalIgnoreCase);
@@ -151,12 +117,16 @@ public sealed class UnitStore
             return (EnrollmentResult.Accepted, known.Value.Token, unitId);
         }
 
-        if (string.IsNullOrWhiteSpace(enrollmentSecret)
-            || !FixedTimeEquals(enrollmentSecret, request.EnrollmentSecret ?? ""))
+        // Bila kode pendaftaran diisi tetapi salah, tolak
+        if (!string.IsNullOrWhiteSpace(request.EnrollmentSecret)
+            && !string.IsNullOrWhiteSpace(enrollmentSecret)
+            && !FixedTimeEquals(enrollmentSecret, request.EnrollmentSecret))
+        {
             return (EnrollmentResult.BadSecret, null, unitId);
+        }
 
-        // Nama koordinator dipakai hanya di sini: saat unit BARU dicatat.
-        // Sesudah itu namanya tetap, apa pun yang terjadi pada alamat IP-nya.
+        // Pendaftaran unit baru atau perpindahan unit antar-lab (desentralisasi).
+        // Nama koordinator diutamakan bila ada pemetaan subnet, atau gunakan nama unit usulan agent.
         var assigned = proposedUnitId ?? request.UnitId;
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));

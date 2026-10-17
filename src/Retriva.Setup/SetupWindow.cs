@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -249,6 +250,49 @@ public sealed class SetupWindow : ChromeWindow
           + "menyimpan basis data, sertifikat, dan melayani seluruh unit."));
 
         panel.Children.Add(cards);
+
+        var hasExisting = SystemActions.ServiceExists(SetupProfile.ServiceName)
+            || Directory.Exists(Path.Combine(SetupProfile.ProgramFiles, "Retriva", "Lab"))
+            || Directory.Exists(Path.Combine(SetupProfile.ProgramFiles, "Retriva", "Panel"))
+            || Directory.Exists(SetupProfile.DataDir);
+
+        if (hasExisting)
+        {
+            var cleanCard = new Border
+            {
+                Background = Theme.Brush(Theme.Surface1),
+                BorderBrush = Theme.Brush(Color.FromArgb(90, 224, 185, 92)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 14, 0, 0),
+            };
+
+            var cleanGrid = new Grid();
+            cleanGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            cleanGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var cleanText = new StackPanel();
+            cleanText.Children.Add(Theme.Text("Terdeteksi instalasi atau sisa data/konfigurasi Retriva di PC ini", 12, Theme.Warn, FontWeights.SemiBold));
+            cleanText.Children.Add(Theme.Text("Ingin membersihkan total sisa pengaturan lama sebelum memasang ulang?", 11, Theme.InkMuted));
+            Grid.SetColumn(cleanText, 0);
+            cleanGrid.Children.Add(cleanText);
+
+            var unBtn = Theme.Button("Copot / Bersihkan");
+            unBtn.Padding = new Thickness(12, 5, 12, 5);
+            unBtn.Click += (_, _) =>
+            {
+                var unWin = new UninstallWindow();
+                unWin.ShowDialog();
+                Render();
+            };
+            Grid.SetColumn(unBtn, 1);
+            cleanGrid.Children.Add(unBtn);
+
+            cleanCard.Child = cleanGrid;
+            panel.Children.Add(cleanCard);
+        }
+
         return panel;
     }
 
@@ -378,116 +422,35 @@ public sealed class SetupWindow : ChromeWindow
 
         if (_profile.Role == SetupRole.Lab)
         {
-            panel.Children.Add(Theme.Text("Sambungan ke koordinator", 19, Theme.Ink, FontWeights.SemiBold));
+            panel.Children.Add(Theme.Text("Pengaturan PC Mahasiswa", 19, Theme.Ink, FontWeights.SemiBold));
             panel.Children.Add(Theme.Text(
-                "Ketiga nilai ini sama untuk seluruh lab dan ada di layar Konfigurasi pada panel Superadmin. "
-              + "Nomor unit tidak diisi di sini — koordinator yang menamainya.",
+                "Retriva Client terdesentralisasi: unit akan otomatis mendeteksi dan terhubung ke Superadmin "
+              + "di jaringan lokal lab yang sedang ditempati tanpa perlu pengaturan manual.",
                 12.5, Theme.InkMuted));
 
             var body = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
 
-            var host = Theme.Field(_profile.Host);
-            host.TextChanged += (_, _) => _profile.Host = host.Text.Trim();
-            body.Children.Add(Theme.Labeled("Alamat koordinator", host));
-
-            /*
-                Alamat dapat dicari, bukan hanya diketik.
-
-                Koordinator sudah memancarkan beacon tiap dua detik untuk
-                penemuan lab oleh panel dosen. Mendengarkannya di sini membuat
-                dua medan yang paling mudah salah ketik — alamat dan sidik jari —
-                terisi sendiri.
-
-                Tetap dapat disunting setelahnya. Beacon tidak dipercaya sebagai
-                keamanan: siapa pun di jaringan yang sama dapat mengirim datagram
-                yang mengaku lab, jadi yang didapat hanyalah isian awal yang
-                dibaca dan disetujui orangnya.
-            */
-            var find = Theme.Button("Cari koordinator di jaringan");
-            var findNote = Theme.Text("", 11.5, Theme.InkDim);
-
-            find.Click += async (_, _) =>
-            {
-                find.IsEnabled = false;
-                find.Content = "Mendengarkan...";
-                findNote.Text = "";
-
-                var labs = await Task.Run(() => LabFinder.Listen(TimeSpan.FromSeconds(4)));
-
-                find.IsEnabled = true;
-                find.Content = "Cari koordinator di jaringan";
-
-                if (labs.Count == 0)
-                {
-                    findNote.Text =
-                        "Tidak ada koordinator terdengar. Bisa berarti belum berjalan, berbeda "
-                      + "jaringan, atau multicast diblokir. Isi alamatnya dengan tangan.";
-                    findNote.Foreground = Theme.Brush(Theme.Warn);
-                    return;
-                }
-
-                // Yang pertama dipakai; sisanya disebutkan supaya orangnya tahu
-                // ada pilihan lain dan dapat mengetiknya sendiri.
-                var lab = labs[0];
-                _profile.Host = lab.Host;
-                _profile.Port = lab.Port;
-                if (!string.IsNullOrWhiteSpace(lab.Thumbprint)) _profile.Thumbprint = lab.Thumbprint;
-
-                findNote.Text = labs.Count == 1
-                    ? $"Ditemukan: {lab.LabName} di {lab.Host}:{lab.Port}"
-                    : $"Ditemukan {labs.Count} lab; dipakai {lab.LabName} di {lab.Host}. "
-                      + $"Lainnya: {string.Join(", ", labs.Skip(1).Select(l => $"{l.LabName} ({l.Host})"))}";
-                findNote.Foreground = Theme.Brush(Theme.Ok);
-
-                Render();
-            };
-
-            find.HorizontalAlignment = HorizontalAlignment.Left;
-            find.Margin = new Thickness(0, 0, 0, 6);
-            body.Children.Add(find);
-
-            findNote.Margin = new Thickness(0, 0, 0, 12);
-            body.Children.Add(findNote);
-
-            var port = Theme.Field(_profile.Port.ToString());
-            port.TextChanged += (_, _) =>
-            {
-                if (int.TryParse(port.Text.Trim(), out var p) && p is > 0 and < 65536) _profile.Port = p;
-            };
-            body.Children.Add(Theme.Labeled("Port", port));
-
-            var secret = Theme.Field(_profile.EnrollmentSecret);
-            secret.TextChanged += (_, _) => _profile.EnrollmentSecret = secret.Text.Trim();
-            body.Children.Add(Theme.Labeled("Kode pendaftaran agent", secret));
-
-            var thumb = Theme.Field(_profile.Thumbprint);
-            thumb.TextChanged += (_, _) => _profile.Thumbprint = thumb.Text.Trim();
-            body.Children.Add(Theme.Labeled("Sidik jari sertifikat (SHA-256)", thumb));
-
+            var name = Theme.Field(_profile.DisplayName);
+            name.TextChanged += (_, _) => _profile.DisplayName = name.Text.Trim();
+            body.Children.Add(Theme.Labeled("Nama PC Mahasiswa", name));
             body.Children.Add(Theme.Text(
-                "Dikosongkan, agent tetap terpasang dan layanannya berjalan — tetapi setiap upaya "
-              + "mendaftar akan ditolak koordinator. Unit itu tampak sehat dari Service Manager dan "
-              + "tidak pernah muncul di dashboard.",
-                11.5, Theme.Warn));
+                "Nama atau nomor unit ini yang akan tampil di panel lab yang sedang tersambung (misal: PC-01 atau nama mahasiswa).",
+                11, Theme.InkDim));
 
             body.Children.Add(FolderRow(
-                "Folder program",
+                "Folder aplikasi Retriva",
                 () => _profile.InstallDirOverride,
                 v => _profile.InstallDirOverride = v,
                 _profile.DefaultInstallDir,
-                "Bawaannya di Program Files, dan itu memang yang benar untuk hampir semua lab: "
-              + "Windows sendiri yang memastikan pengguna biasa dapat menjalankan isinya tanpa dapat "
-              + "menggantinya. Diubah hanya bila drive sistemnya sempit."));
+                "Bawaannya di Program Files. Windows sendiri memastikan pengguna biasa dapat menjalankan isinya "
+              + "tanpa dapat menggantinya. Diubah hanya bila drive sistemnya sempit."));
 
             body.Children.Add(FolderRow(
                 "Folder berkas yang diterima",
                 () => _profile.FileInboxDir,
                 v => _profile.FileInboxDir = v,
                 SetupProfile.DefaultFileInbox,
-                "Tempat berkas dari asisten mendarat. Bawaannya di Documents mahasiswa — tempat yang "
-              + "ia tahu cara membukanya. Diarahkan ke drive lain bila berkas praktikumnya besar; "
-              + "tujuh gigabyte di partisi sistem yang sempit tidak berakhir sebagai galat yang "
-              + "menyebut disk penuh, melainkan sebagai Windows yang mulai gagal di tempat lain."));
+                "Tempat berkas praktikum atau kiriman dari asisten/dosen mendarat. Bawaannya di Documents mahasiswa."));
 
             panel.Children.Add(body);
         }
@@ -495,31 +458,48 @@ public sealed class SetupWindow : ChromeWindow
         {
             panel.Children.Add(Theme.Text("Peran panel ini", 19, Theme.Ink, FontWeights.SemiBold));
             panel.Children.Add(Theme.Text(
-                "Satu pertanyaan saja. Semua yang lain diturunkan darinya.",
+                "Pilih apakah mesin ini menjadi Superadmin penyelenggara lab atau Admin/Dosen yang bergabung.",
                 12.5, Theme.InkMuted));
 
             var body = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
 
-            var name = Theme.Field(_profile.DisplayName);
-            name.TextChanged += (_, _) => _profile.DisplayName = name.Text.Trim();
-            body.Children.Add(Theme.Labeled("Nama panel, sebagaimana tampil di lab", name));
+            body.Children.Add(HostChoice(true, "Mesin ini menjalankan lab (Superadmin)",
+                "PC Asisten utama. Menjalankan koordinator lab, menyimpan basis data dan sertifikat, "
+              + "membuka porta jaringan, serta melayani seluruh unit mahasiswa dan panel admin lain."));
 
-            body.Children.Add(HostChoice(true, "Mesin ini menjalankan lab",
-                "Menyimpan basis data dan sertifikat, membuka porta, dan melayani seluruh unit. "
-              + "Satu lab hanya boleh punya satu."));
+            body.Children.Add(HostChoice(false, "Bergabung ke lab yang sudah ada (Admin / Dosen)",
+                "Untuk laptop dosen atau PC asisten pendamping. Tidak membuka porta; aplikasi menemukan lab "
+              + "lewat jaringan lokal dan pendaftarannya cukup dilakukan langsung di aplikasi."));
 
-            body.Children.Add(HostChoice(false, "Bergabung ke lab yang sudah ada",
-                "Untuk laptop dosen. Tidak membuka porta apa pun; ia menemukan lab lewat jaringan "
-              + "dan menunggu asisten menyetujuinya."));
+            if (_profile.HostsLab)
+            {
+                var labName = Theme.Field(_profile.LabName);
+                labName.TextChanged += (_, _) => _profile.LabName = labName.Text.Trim();
+                body.Children.Add(Theme.Labeled("Nama lab superadmin", labName));
+                body.Children.Add(Theme.Text(
+                    "Nama laboratorium yang dipancarkan ke jaringan dan ditampilkan di kepala panel (misal: LAB Jaringan, LAB Basis Data).",
+                    11, Theme.InkDim));
+
+                var name = Theme.Field(_profile.DisplayName);
+                name.TextChanged += (_, _) => _profile.DisplayName = name.Text.Trim();
+                body.Children.Add(Theme.Labeled("Nama device / asisten", name));
+            }
+            else
+            {
+                var name = Theme.Field(_profile.DisplayName);
+                name.TextChanged += (_, _) => _profile.DisplayName = name.Text.Trim();
+                body.Children.Add(Theme.Labeled("Nama device admin (laptop dosen / PC asisten)", name));
+                body.Children.Add(Theme.Text(
+                    "Nama yang akan dilihat oleh Superadmin saat menyetujui pendaftaran panel ini.",
+                    11, Theme.InkDim));
+            }
 
             body.Children.Add(FolderRow(
-                "Folder program",
+                "Folder aplikasi Retriva",
                 () => _profile.InstallDirOverride,
                 v => _profile.InstallDirOverride = v,
                 _profile.DefaultInstallDir,
-                "Basis data, sertifikat, dan konfigurasi TIDAK ikut pindah — ketiganya selalu di "
-              + "ProgramData\\Retriva. Mengubah folder ini tidak akan menghilangkan data lab yang "
-              + "sudah ada."));
+                "Folder program panel admin. Data dan basis data lab selalu berada di ProgramData\\Retriva."));
 
             panel.Children.Add(body);
         }

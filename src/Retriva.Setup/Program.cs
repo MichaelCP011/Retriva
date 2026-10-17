@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 
 namespace Retriva.Setup;
@@ -26,7 +27,12 @@ public static class Program
     {
         try
         {
-            if (Has(args, "--uninstall")) return Uninstall(args);
+            var exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
+            var isUninstall = Has(args, "--uninstall")
+                           || exeName.Equals("Uninstall", StringComparison.OrdinalIgnoreCase)
+                           || exeName.Contains("Uninstall", StringComparison.OrdinalIgnoreCase);
+
+            if (isUninstall) return RunUninstall(args);
             if (Has(args, "--check")) return Check(args);
             if (Has(args, "--logs")) return CollectLogs(args);
             if (Has(args, "--reconfigure")) return Reconfigure(args);
@@ -141,11 +147,15 @@ public static class Program
 
     private static int SilentInstall(string[] args)
     {
+        var roleArg = Value(args, "--role");
+        var isPanel = string.Equals(roleArg, "panel", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(roleArg, "admin", StringComparison.OrdinalIgnoreCase);
+
+        var isUpdate = Has(args, "--update");
+
         var profile = new SetupProfile
         {
-            Role = string.Equals(Value(args, "--role"), "panel", StringComparison.OrdinalIgnoreCase)
-                ? SetupRole.Panel
-                : SetupRole.Lab,
+            Role = isPanel ? SetupRole.Panel : SetupRole.Lab,
             Host = Value(args, "--host") ?? "192.168.1.252",
             Port = int.TryParse(Value(args, "--port"), out var p) ? p : 8443,
             EnrollmentSecret = Value(args, "--secret") ?? "",
@@ -154,22 +164,50 @@ public static class Program
             DisplayName = Value(args, "--name") ?? Environment.MachineName,
         };
 
+        // Jika mode pembaruan (in-place update), baca konfigurasi lama agar tidak hilang
+        var agentConfigFile = Path.Combine(SetupProfile.DataDir, "agent.json");
+        if (profile.Role == SetupRole.Lab && File.Exists(agentConfigFile))
+        {
+            isUpdate = true;
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(agentConfigFile));
+                var root = doc.RootElement;
+                if (string.IsNullOrWhiteSpace(profile.EnrollmentSecret) &&
+                    root.TryGetProperty("enrollmentSecret", out var sec))
+                {
+                    profile.EnrollmentSecret = sec.GetString() ?? "";
+                }
+                if (string.IsNullOrWhiteSpace(profile.Thumbprint) &&
+                    root.TryGetProperty("certificateThumbprint", out var thumb))
+                {
+                    profile.Thumbprint = thumb.GetString() ?? "";
+                }
+                if (root.TryGetProperty("consoleEndpoints", out var eps) && eps.ValueKind == JsonValueKind.Array && eps.GetArrayLength() > 0)
+                {
+                    profile.Host = eps[0].GetString() ?? profile.Host;
+                }
+                if (root.TryGetProperty("consolePort", out var portVal) && portVal.TryGetInt32(out var pVal))
+                {
+                    profile.Port = pVal;
+                }
+            }
+            catch
+            {
+                // jika berkas konfigurasi lama bermasalah, lanjutkan alur biasa
+            }
+        }
+
         /*
-            Kode pendaftaran dan sidik jari WAJIB pada pemasangan senyap peran Lab.
-
-            Tanpa keduanya, pemasangannya berhasil sempurna dan unitnya tidak
-            pernah muncul di dashboard. Empat puluh PC yang dipasang lewat skrip
-            akan diam semua, dan sebabnya baru ketahuan saat praktikum dimulai.
-
-            Pada pemasangan berjendela nilainya boleh kosong — di sana ada
-            manusia yang membaca peringatannya dan memutuskan sendiri.
+            Kode pendaftaran dan sidik jari WAJIB pada pemasangan senyap baru peran Lab.
+            Pada pembaruan (update), nilai lama dipertahankan sehingga tidak wajib diisi lagi.
         */
-        if (profile.Role == SetupRole.Lab)
+        if (profile.Role == SetupRole.Lab && !isUpdate)
         {
             if (string.IsNullOrWhiteSpace(profile.EnrollmentSecret))
             {
                 Console.Error.WriteLine(
-                    "GAGAL: --secret wajib diisi pada pemasangan senyap. "
+                    "GAGAL: --secret wajib diisi pada pemasangan senyap baru. "
                   + "Nilainya ada di layar Konfigurasi pada panel Superadmin.");
                 return 2;
             }
@@ -192,7 +230,7 @@ public static class Program
 
         var log = Logger(args);
 
-        var checks = Prerequisites.RunAll(profile.Host, profile.Port);
+        var checks = Prerequisites.RunAll(profile.Host, profile.Port, isUpdate);
         var blocking = checks.Where(c => c.State == CheckState.Fail).ToList();
 
         foreach (var c in checks) log($"[{c.State,-7}] {c.Title}: {c.Detail}");
@@ -341,18 +379,11 @@ public static class Program
         }
     }
 
-    private static int Uninstall(string[] args)
+    private static int RunUninstall(string[] args)
     {
-        /*
-            Peran ditebak dari LOKASI installer ini, bukan diminta lewat argumen.
-
-            Uninstall dipanggil Windows dari UninstallString di registry, dan
-            yang menekan tombolnya di Apps & features tidak akan pernah mengetik
-            "--role lab". Karena setiap peran punya foldernya sendiri, jalur exe
-            yang sedang berjalan sudah menjawab pertanyaannya.
-        */
-        var role = Environment.ProcessPath?.Contains(
-            Path.Combine("Retriva", "Panel"), StringComparison.OrdinalIgnoreCase) == true
+        var currentPath = Environment.ProcessPath ?? "";
+        var role = currentPath.Contains(
+            Path.Combine("Retriva", "Panel"), StringComparison.OrdinalIgnoreCase)
             ? SetupRole.Panel
             : SetupRole.Lab;
 
@@ -365,26 +396,47 @@ public static class Program
 
         var cleanData = Has(args, "--clean-data");
 
-        if (!Has(args, "--silent"))
+        // Jika mode senyap (--silent)
+        if (Has(args, "--silent"))
         {
-            var profile = new SetupProfile { Role = role };
-            var question = cleanData
-                ? $"Copot {profile.ProductName} DAN hapus seluruh data di ProgramData?\n\n"
-                  + "Token perangkat, basis data, dan sertifikat ikut terhapus. "
-                  + "Tindakan ini tidak dapat dibatalkan."
-                : $"Copot {profile.ProductName}?\n\n"
-                  + "Data di ProgramData dipertahankan, termasuk token perangkat, "
-                  + "sehingga pemasangan berikutnya tidak kehilangan identitas unit.";
+            var log = Logger(args);
+            Installer.Uninstall(role, cleanData, log);
+            return 0;
+        }
 
-            if (MessageBox.Show(question, "Retriva", MessageBoxButton.OKCancel,
-                    MessageBoxImage.Warning) != MessageBoxResult.OK)
+        // Jika dipanggil langsung dari dalam folder Program Files (misal C:\Program Files\Retriva\Lab\Uninstall.exe),
+        // salin sementara ke %TEMP% agar Uninstall.exe tidak mengunci folder saat menghapus Program Files!
+        var inProgramFiles = currentPath.Contains(Path.Combine("Retriva", "Lab"), StringComparison.OrdinalIgnoreCase)
+                          || currentPath.Contains(Path.Combine("Retriva", "Panel"), StringComparison.OrdinalIgnoreCase);
+
+        if (inProgramFiles && !Has(args, "--from-temp"))
+        {
+            try
             {
-                return 1;
+                var tempDir = Path.Combine(Path.GetTempPath(), "RetrivaUninstall");
+                Directory.CreateDirectory(tempDir);
+                var tempExe = Path.Combine(tempDir, "RetrivaUninstall.exe");
+                File.Copy(currentPath, tempExe, overwrite: true);
+
+                var passArgs = new List<string>(args) { "--from-temp", "--uninstall" };
+                if (!Has(args, "--role")) passArgs.Add($"--role {(role == SetupRole.Panel ? "panel" : "lab")}");
+
+                var psi = new System.Diagnostics.ProcessStartInfo(tempExe, string.Join(" ", passArgs))
+                {
+                    UseShellExecute = true,
+                };
+                System.Diagnostics.Process.Start(psi);
+                return 0;
+            }
+            catch
+            {
+                // Jika trampoline gagal, buka jendela langsung
             }
         }
 
-        var log = Logger(args);
-        Installer.Uninstall(role, cleanData, log);
+        // Tampilkan jendela uninstaller kustom WPF Retriva
+        var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+        app.Run(new UninstallWindow(role));
         return 0;
     }
 

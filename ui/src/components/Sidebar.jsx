@@ -27,7 +27,7 @@ export function IconRail({ view, onNavigate }) {
 }
 
 /** Panel navigasi rinci. */
-export function NavPanel({ view, onNavigate, unitCount, online, panelRole, badges, labName, can }) {
+export function NavPanel({ view, onNavigate, unitCount, online, panelRole, badges, labName, can, appVersion }) {
   // Menu yang seluruh isinya akan ditolak tidak ditampilkan. Yang menegakkan
   // tetap Superadmin; ini hanya menghindari pintu yang terkunci tanpa tanda.
   const allow = can ?? (() => true);
@@ -42,15 +42,6 @@ export function NavPanel({ view, onNavigate, unitCount, online, panelRole, badge
     <nav className="nav">
       <div className="nav-head">
         <div className="nav-title">{labName ?? 'Laboratorium Information Retrieval'}</div>
-        {/*
-          Peran PANEL INI, bukan peran koordinator.
-
-          Dulu baris ini membaca ConsoleConfig.Role — nilai tentang primer atau
-          sekundernya koordinator, yang tidak berhubungan sama sekali dengan
-          siapa yang sedang memakai panel ini. Akibatnya laptop dosen pun
-          berbunyi "PC Asisten", dan di ruangan dengan dua panel terbuka tidak
-          ada cara membedakan keduanya.
-        */}
         <div className="nav-sub">{panelRole ?? 'Belum tertaut'} · {online} unit aktif</div>
       </div>
 
@@ -72,7 +63,7 @@ export function NavPanel({ view, onNavigate, unitCount, online, panelRole, badge
 
       <div className="nav-foot">
         <span className={`badge-dot${online ? '' : ' off'}`} />
-        Layanan aktif · port 8443
+        Retriva v{appVersion ?? '1.0.0'} · port 8443
       </div>
     </nav>
   );

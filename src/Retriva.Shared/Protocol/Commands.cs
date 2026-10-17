@@ -195,6 +195,8 @@ public sealed record BeginRemoteCommand : AgentCommand
     public int FrameRate { get; init; } = 15;
     /// <summary>False berarti hanya melihat tanpa mengambil alih input.</summary>
     public bool AllowInput { get; init; }
+    /// <summary>Host tujuan pengiriman aliran layar admin. Jika null, agen memakai host koordinator.</summary>
+    public string? AdminHost { get; init; }
 }
 
 public sealed record EndRemoteCommand : AgentCommand;

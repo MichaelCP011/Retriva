@@ -65,7 +65,17 @@ public static class ConfigStore
         // Tulis ke berkas sementara lalu ganti, supaya listrik mati di tengah
         // penulisan tidak meninggalkan konfigurasi yang terpotong.
         var temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(value, Options));
-        File.Move(temp, path, overwrite: true);
+        var json = JsonSerializer.Serialize(value, Options);
+        File.WriteAllText(temp, json);
+        try
+        {
+            File.Move(temp, path, overwrite: true);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Bila hak replace/delete pada file tujuan ditolak OS, tulis langsung ke file tujuan
+            File.WriteAllText(path, json);
+            try { File.Delete(temp); } catch { }
+        }
     }
 }

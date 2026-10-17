@@ -40,13 +40,68 @@ namespace Retriva.Agent;
 /// Jadi: alamat lab yang sama diperbaiki sendiri; berpindah ke lab yang BERBEDA
 /// tetap menuntut kode pendaftaran lab itu, dan itu memang seharusnya.
 /// </summary>
+public sealed record DiscoveredLab(string Host, int Port, string Thumbprint, string LabName);
+
 public static class LabRediscovery
 {
     /// <summary>
+    /// Mendengarkan beacon lab di jaringan lokal dan mengembalikan lab pertama yang ditemukan.
+    /// Digunakan untuk klien terdesentralisasi yang secara otomatis menyesuaikan diri ke Superadmin di lab lokal.
+    /// </summary>
+    public static DiscoveredLab? FindAny(TimeSpan patience, ILogger log)
+    {
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            socket.Bind(new IPEndPoint(IPAddress.Any, PanelProtocol.DiscoveryPort));
+
+            if (!JoinOnEveryInterface(socket, log)) return null;
+
+            socket.ReceiveTimeout = 400;
+            var buffer = new byte[8192];
+            var deadline = DateTime.UtcNow + patience;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                int length;
+                EndPoint sender = new IPEndPoint(IPAddress.Any, 0);
+
+                try { length = socket.ReceiveFrom(buffer, ref sender); }
+                catch (SocketException) { continue; }
+
+                if (sender is not IPEndPoint from) continue;
+
+                LabBeacon? beacon;
+                try
+                {
+                    beacon = JsonSerializer.Deserialize<LabBeacon>(
+                        Encoding.UTF8.GetString(buffer, 0, length),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch (JsonException) { continue; }
+
+                if (beacon is null || beacon.Port <= 0 || string.IsNullOrWhiteSpace(beacon.Thumbprint)) continue;
+
+                var host = from.Address.ToString();
+                log.LogInformation("Superadmin lab ditemukan di jaringan lokal: {Lab} ({Host}:{Port})",
+                    beacon.LabName, host, beacon.Port);
+
+                return new DiscoveredLab(host, beacon.Port, beacon.Thumbprint, beacon.LabName);
+            }
+        }
+        catch (SocketException ex)
+        {
+            log.LogWarning("Pencarian lab dinamis gagal: {Message}", ex.Message);
+            return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Mendengarkan beacon dan mengembalikan alamat lab yang sidik jarinya cocok.
-    ///
-    /// Mengembalikan null bila tidak ada yang terdengar, atau yang terdengar
-    /// bukan lab yang dipercaya agent ini.
     /// </summary>
     public static string? FindTrusted(string expectedThumbprint, TimeSpan patience, ILogger log)
     {

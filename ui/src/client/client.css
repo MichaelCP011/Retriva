@@ -473,6 +473,10 @@
   22%, 100%{ opacity: 0;  transform: scale(2.1); }
 }
 
+@keyframes cl-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Kanvas peta laboratorium. Ditaruh di belakang teks, tidak menangkap klik. */
 .cw-canvas {
   position: absolute;

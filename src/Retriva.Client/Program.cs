@@ -1,6 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using Retriva.Media;
 using Retriva.Shared;
 using Retriva.Shared.Local;
 
@@ -44,7 +45,7 @@ public static class Program
 
         var link = new AgentLink();
         var overlay = new LockOverlay();
-        var blocker = new KeyboardBlocker();
+        var blocker = new RemoteInputBlocker();
         var remote = new RemoteSessionHost();
         var shell = new ClientShell();
 
@@ -154,7 +155,7 @@ public static class Program
         {
             Append($"[kunci] diminta oleh {show.IssuedBy}");
             var shown = overlay.ShowLocked(show.Message, show.IssuedBy);
-            if (shown) blocker.Install();
+            if (shown) blocker.Install(blocking: true);
             return shown;
         });
 
@@ -437,8 +438,47 @@ public static class Program
         };
 
         shell.Loaded += (_, _) => link.Start();
+
+        /*
+            Pengiriman pratinjau layar (Thumbnail) berkala ke agent setiap 2 detik.
+            Karena agent adalah Windows Service di Session 0, penangkapan layar
+            interaktif desktop HANYA bisa dilakukan oleh klien yang berjalan di sesi pengguna (Session 1).
+        */
+        using var thumbCts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(thumbCts.Token))
+                {
+                    if (!link.Connected) continue;
+
+                    try
+                    {
+                        var jpeg = ScreenThumbnail.Capture();
+                        if (jpeg.Length > 0)
+                        {
+                            await link.SendAsync(new ScreenThumbnailReport
+                            {
+                                JpegData = jpeg,
+                                Width = ScreenThumbnail.Width,
+                                Height = ScreenThumbnail.Height,
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Append($"[pratinjau] gagal: {ex.Message}");
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, thumbCts.Token);
+
         shell.Closed += async (_, _) =>
         {
+            thumbCts.Cancel();
             blocker.Dispose();
             // Pemblokir input dilepas sebelum proses berakhir, kalau tidak mouse
             // dan keyboard mahasiswa tetap tertahan sampai Windows menyadari

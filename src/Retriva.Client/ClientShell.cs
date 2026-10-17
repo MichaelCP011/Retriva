@@ -11,7 +11,9 @@ using System.Windows.Shell;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using Retriva.Media;
+using Retriva.Shared;
 using Retriva.Shared.Local;
+using Retriva.Shared.Update;
 using Retriva.Ui;
 
 namespace Retriva.Client;
@@ -108,6 +110,8 @@ public sealed class ClientShell : ChromeWindow
     public Action<string>? Diagnostic;
     public event Action? Ready;
 
+    private string? _pendingUpdateInstallerPath;
+
     public ClientShell() : base("Retriva", "Mahasiswa", "client")
     {
         Width = 1040;
@@ -137,8 +141,20 @@ public sealed class ClientShell : ChromeWindow
               + $"frame terakhir {_latestFrame.Length} byte");
         };
 
-        Loaded += async (_, _) => await InitializeWebViewAsync();
-        Closed += (_, _) => StopBroadcast();
+        Loaded += async (_, _) =>
+        {
+            await InitializeWebViewAsync();
+            _ = Task.Run(CheckForAppUpdatesAsync);
+        };
+        Closed += (_, _) =>
+        {
+            StopBroadcast();
+            if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath) && File.Exists(_pendingUpdateInstallerPath))
+            {
+                Diagnostic?.Invoke($"[update] Aplikasi klien ditutup. Menjalankan silent update: {_pendingUpdateInstallerPath}");
+                UpdateService.ApplySilentInstall(_pendingUpdateInstallerPath, "lab");
+            }
+        };
     }
 
     /// <summary>
@@ -348,9 +364,52 @@ public sealed class ClientShell : ChromeWindow
                 OpenLink(msg.Url);
                 break;
 
+            case "checkUpdates":
+                _ = Task.Run(CheckForAppUpdatesAsync);
+                break;
+
+            case "installUpdateNow":
+                if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath) && File.Exists(_pendingUpdateInstallerPath))
+                {
+                    UpdateService.ApplySilentInstall(_pendingUpdateInstallerPath, "lab");
+                    Close();
+                }
+                break;
+
             default:
                 Debug.WriteLine($"[klien] jenis pesan belum ditangani: {msg.Type}");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Memeriksa pembaruan di latar belakang dari GitHub Releases dan mengunduhnya
+    /// ke folder staging jika tersedia, untuk dipasang secara senyap saat aplikasi ditutup.
+    /// </summary>
+    private async Task CheckForAppUpdatesAsync()
+    {
+        try
+        {
+            var update = await UpdateService.CheckGitHubReleaseAsync();
+            if (update is null) return;
+
+            Diagnostic?.Invoke($"[update] Rilis Retriva v{update.Version} ditemukan. Mengunduh di latar belakang...");
+            _pendingUpdateInstallerPath = await UpdateService.DownloadUpdateInBackgroundAsync(update);
+
+            if (!string.IsNullOrWhiteSpace(_pendingUpdateInstallerPath))
+            {
+                Diagnostic?.Invoke($"[update] Pembaruan v{update.Version} siap dipasang saat aplikasi ditutup.");
+                Dispatcher.Invoke(() => Push(new
+                {
+                    type = "updateReady",
+                    version = update.Version,
+                    notes = update.ReleaseNotes,
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            Diagnostic?.Invoke($"[update] Pengecekan pembaruan dilewati: {ex.Message}");
         }
     }
 

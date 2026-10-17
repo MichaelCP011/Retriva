@@ -29,12 +29,45 @@ public static class FileEndpoints
             // tidak pernah menyeberangi jaringan dalam keadaan terbuka karena
             // seluruh sambungan ini ber-TLS.
             //
-            // Ini bukan pengganti autentikasi per-unit yang sesungguhnya, dan
-            // memang tidak berpura-pura menjadi itu — M7.3 yang menggantinya
-            // dengan kredensial per perangkat.
-            var presented = context.Request.Headers["X-Retriva-Enrollment"].ToString();
-            if (!string.IsNullOrEmpty(config.AgentEnrollmentSecret)
-                && !string.Equals(presented, config.AgentEnrollmentSecret, StringComparison.Ordinal))
+            var registry = context.RequestServices.GetService<UnitRegistry>();
+            var remoteIp = context.Connection.RemoteIpAddress;
+
+            var presentedSecret = context.Request.Headers["X-Retriva-Enrollment"].ToString();
+            var presentedToken = context.Request.Headers["X-Retriva-Token"].ToString();
+            var presentedUnit = context.Request.Headers["X-Retriva-Unit"].ToString();
+
+            // Autentikasi:
+            // 1. Jika kode pendaftaran di server tidak disetel, izinkan.
+            // 2. Jika kode pendaftaran cocok, izinkan.
+            // 3. Jika unit mengirim unit id / token yang sudah terdaftar di lab, izinkan.
+            // 4. Jika IP peminta adalah salah satu unit yang aktif terhubung di lab atau localhost, izinkan.
+            var authorized = false;
+            if (string.IsNullOrEmpty(config.AgentEnrollmentSecret))
+            {
+                authorized = true;
+            }
+            else if (!string.IsNullOrEmpty(presentedSecret) && string.Equals(presentedSecret, config.AgentEnrollmentSecret, StringComparison.Ordinal))
+            {
+                authorized = true;
+            }
+            else if (registry != null)
+            {
+                var units = registry.Snapshot();
+                if (!string.IsNullOrEmpty(presentedUnit) && units.Any(u => string.Equals(u.UnitId, presentedUnit, StringComparison.OrdinalIgnoreCase)))
+                {
+                    authorized = true;
+                }
+                else if (remoteIp != null)
+                {
+                    var ipStr = (remoteIp.IsIPv4MappedToIPv6 ? remoteIp.MapToIPv4() : remoteIp).ToString();
+                    if (ipStr == "127.0.0.1" || ipStr == "::1" || units.Any(u => u.IpAddress == ipStr))
+                    {
+                        authorized = true;
+                    }
+                }
+            }
+
+            if (!authorized)
             {
                 return Results.Unauthorized();
             }

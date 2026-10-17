@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeSlash, Copy, PencilSimple, FloppyDisk, X, Plus, Trash } from '@phosphor-icons/react';
+import { Eye, EyeSlash, Copy, PencilSimple, FloppyDisk, X, Plus, Trash, ArrowsClockwise, DownloadSimple, CheckCircle } from '@phosphor-icons/react';
 import { send } from '../bridge';
 
 /** Nilai rahasia tersembunyi sampai diminta, supaya tidak terekspos saat siaran layar. */
@@ -29,7 +29,7 @@ function octetOf(ip) {
   return Number.isInteger(n) && n > 0 && n < 255 ? n : null;
 }
 
-export default function Settings({ units, settings, can = () => true }) {
+export default function Settings({ units, settings, updateInfo, can = () => true }) {
   const [requireLogin, setRequireLogin] = useState(true);
   const [allowGuest, setAllowGuest] = useState(true);
   const [allowReject, setAllowReject] = useState(false);
@@ -454,14 +454,56 @@ export default function Settings({ units, settings, can = () => true }) {
             </div>
           )}
 
-          <h3 className="mt">Status layanan</h3>
+          <h3 className="mt">Status &amp; Pembaruan Aplikasi</h3>
           <table className="table">
             <tbody>
+              <tr><td>Versi Aplikasi</td><td className="mono" style={{ fontWeight: 600, color: 'var(--accent)' }}>v{settings?.appVersion ?? '1.0.0'}</td></tr>
               <tr><td>Peran</td><td className="mono">{settings?.role ?? '—'}</td></tr>
               <tr><td>Transport</td><td className="mono">HTTPS · self-signed</td></tr>
               <tr><td>Folder data</td><td className="mono" style={{ fontSize: 11 }}>{settings?.dataDirectory ?? '—'}</td></tr>
             </tbody>
           </table>
+
+          <div style={{ marginTop: 14, padding: '12px', background: 'var(--surface-2)', borderRadius: 'var(--r)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>Pembaruan Aplikasi</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-dim)' }}>
+                  Periksa rilis terbaru dari repositori GitHub resmi.
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => send('checkUpdates')}>
+                <ArrowsClockwise size={14} />Periksa Pembaruan
+              </button>
+            </div>
+
+            {updateInfo && (
+              <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 'var(--r)' }}>
+                {updateInfo.ready ? (
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CheckCircle size={15} weight="fill" /> Pembaruan v{updateInfo.version} Siap Dipasang!
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                      Installer telah selesai diunduh di latar belakang. Klik tombol di bawah untuk memasang pembaruan secara otomatis.
+                    </div>
+                    <button className="btn btn-sm btn-primary" style={{ marginTop: 8 }} onClick={() => send('installUpdateNow')}>
+                      <DownloadSimple size={14} />Pasang Pembaruan Sekarang
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <ArrowsClockwise size={15} className="spin" /> Pembaruan v{updateInfo.version} Ditemukan
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                      Paket rilis baru sedang diunduh di latar belakang...
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="pane">
@@ -526,6 +568,65 @@ export default function Settings({ units, settings, can = () => true }) {
               Tersimpan ke console.json
             </div>
           )}
+
+          <h3 className="mt">Versi &amp; Pembaruan</h3>
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Retriva mendukung pembaruan otomatis di latar belakang dari GitHub Releases atau pengecekan langsung.
+          </div>
+
+          <div style={{
+            background: 'var(--surface-sunken)',
+            borderRadius: 'var(--radius)',
+            padding: '12px 14px',
+            border: '1px solid var(--border-soft)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  Versi Aplikasi: <span style={{ color: 'var(--accent)' }}>v{settings?.appVersion ?? '1.0.0'}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 2 }}>
+                  {updateInfo?.ready
+                    ? `Pembaruan v${updateInfo.version} telah siap dipasang`
+                    : updateInfo
+                      ? `Sedang mengunduh v${updateInfo.version} di latar belakang...`
+                      : 'Memeriksa rilis terbaru secara berkala'}
+                </div>
+              </div>
+              <button className="btn btn-quiet" onClick={() => send('checkUpdates')} title="Periksa apakah ada rilis versi baru di GitHub">
+                <ArrowsClockwise size={14} />Periksa Pembaruan
+              </button>
+            </div>
+
+            {updateInfo?.ready && (
+              <div style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--accent)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 4,
+                gap: 12,
+              }}>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)' }}>
+                    Versi {updateInfo.version} telah siap
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
+                    Klik pasang untuk menerapkan pembaruan tanpa menghapus data dan konfigurasi.
+                  </div>
+                </div>
+                <button className="btn btn-primary" onClick={() => send('installUpdateNow')}>
+                  <DownloadSimple size={14} />Pasang Sekarang
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

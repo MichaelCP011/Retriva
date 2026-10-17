@@ -216,6 +216,34 @@ public sealed class PanelHub(
             command = start with { FullscreenUnits = [.. units.AutoFullscreen()] };
 
         /*
+            Alamat penerima aliran layar kendali/pantau jarak jauh (Remote View & Take Control).
+
+            Bila perintah datang dari panel terpisah (misalnya PC Dosen di 192.168.10.42),
+            aliran layar mahasiswa HARUS dikirim ke IP PC Dosen tersebut, BUKAN ke Superadmin.
+            Bila panel di mesin lokal (loopback/Superadmin), AdminHost dibiarkan null
+            sehingga agen memakai alamat koordinator (_consoleHost).
+        */
+        if (command is BeginRemoteCommand remote)
+        {
+            var panelIp = Context.GetHttpContext()?.Connection.RemoteIpAddress;
+            string? targetHost = null;
+            if (panelIp is not null)
+            {
+                var normalized = panelIp.IsIPv4MappedToIPv6 ? panelIp.MapToIPv4() : panelIp;
+                if (!IPAddress.IsLoopback(normalized))
+                {
+                    targetHost = normalized.ToString();
+                }
+            }
+
+            command = remote with { AdminHost = targetHost ?? remote.AdminHost };
+            log.LogInformation(
+                "Sesi kendali jarak jauh atas {Units} diarahkan ke panel host: {Host}",
+                string.Join(", ", targets),
+                ((BeginRemoteCommand)command).AdminHost ?? "(lokal koordinator)");
+        }
+
+        /*
             Alamat relay untuk presentasi mahasiswa DITIMPA per unit tujuan.
 
             Panel menerima alamat relay saat mengklaim siaran, dan alamat itu

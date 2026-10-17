@@ -8,7 +8,7 @@ namespace Retriva.Shared;
 public static class RetrivaVersion
 {
     /// <summary>Nomor versi saat ini (SemVer: Major.Minor.Patch).</summary>
-    public const string Current = "1.0.0";
+    public const string Current = "1.0.2";
 
     /// <summary>Pemilik dan repositori GitHub resmi untuk rilis dan pembaruan.</summary>
     public const string GitHubOwner = "MichaelCP011";

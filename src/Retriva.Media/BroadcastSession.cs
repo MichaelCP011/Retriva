@@ -109,99 +109,109 @@ public sealed class BroadcastSession : IAsyncDisposable
         _loop = Task.Run(() => RunAsync(_cts.Token));
     }
 
+    private int _closedChecks;
+
     private async Task RunAsync(CancellationToken ct)
     {
         var interval = TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, _settings.Fps));
         var nextTick = Stopwatch.GetTimestamp();
         var ticksPerInterval = (long)(interval.TotalSeconds * Stopwatch.Frequency);
 
-        while (!ct.IsCancellationRequested)
+        try
         {
-            if (_source is null) return;
-
-            // Kesehatan target diperiksa dua kali sedetik, bukan tiap frame.
-            // Jendela tidak ditutup atau diubah ukurannya di tengah frame, dan
-            // pemeriksaannya memanggil beberapa API jendela.
-            if (Stopwatch.GetTimestamp() - _lastHealthCheck > Stopwatch.Frequency / 2)
+            while (!ct.IsCancellationRequested)
             {
-                _lastHealthCheck = Stopwatch.GetTimestamp();
+                if (_source is null) return;
 
-                switch (_source.CheckTarget())
+                // Kesehatan target diperiksa dua kali sedetik, bukan tiap frame.
+                if (Stopwatch.GetTimestamp() - _lastHealthCheck > Stopwatch.Frequency / 2)
                 {
-                    case TargetHealth.Closed:
-                        // Berhenti dengan alasan, bukan diam-diam menyiarkan
-                        // potongan layar dari koordinat jendela yang sudah mati.
-                        Fault = $"{_source.TargetLabel} ditutup";
-                        return;
+                    _lastHealthCheck = Stopwatch.GetTimestamp();
 
-                    case TargetHealth.Resized:
-                        // Bitmap terpaku ukuran awal, jadi jendela yang membesar
-                        // akan terpotong. Sesi tangkapnya dibuat ulang; setiap
-                        // frame adalah JPEG utuh, sehingga penonton menerima
-                        // ukuran baru tanpa perlu diberi tahu lebih dulu.
-                        RebuildSource();
-                        break;
+                    var health = _source.CheckTarget();
+                    switch (health)
+                    {
+                        case TargetHealth.Closed:
+                            // Beri toleransi beberapa detik sebelum benar-benar mematikan siaran,
+                            // karena sebagian aplikasi (seperti PowerPoint slide show atau popout browser)
+                            // merekonstruksi handle jendela saat beralih mode.
+                            _closedChecks++;
+                            if (_closedChecks >= 4)
+                            {
+                                Fault = $"{_source.TargetLabel} ditutup";
+                                return;
+                            }
+                            _frozenByMinimize = true;
+                            break;
 
-                    case TargetHealth.Minimized:
-                        // Tidak ada piksel untuk diambil, tetapi jendelanya masih
-                        // hidup. Frame terakhir terus dikirim sampai dibuka lagi.
-                        _frozenByMinimize = true;
-                        break;
+                        case TargetHealth.Resized:
+                            _closedChecks = 0;
+                            _frozenByMinimize = false;
+                            try { RebuildSource(); } catch { /* best effort */ }
+                            break;
 
-                    case TargetHealth.Healthy:
-                        _frozenByMinimize = false;
-                        break;
+                        case TargetHealth.Minimized:
+                            _closedChecks = 0;
+                            _frozenByMinimize = true;
+                            break;
+
+                        case TargetHealth.Healthy:
+                            _closedChecks = 0;
+                            _frozenByMinimize = false;
+                            break;
+                    }
                 }
-            }
 
-            var holding = Frozen || _frozenByMinimize;
+                var holding = Frozen || _frozenByMinimize;
 
-            if (!holding)
-            {
-                var frame = _source.Grab();
-                if (frame is not null)
+                try
                 {
-                    _sender.Send(frame);
-                    _lastCaptured = frame;
-                    LastFrame = frame.Data;
-                    _framesSent++;
+                    if (!holding)
+                    {
+                        var frame = _source.Grab();
+                        if (frame is not null)
+                        {
+                            _sender.Send(frame);
+                            _lastCaptured = frame;
+                            LastFrame = frame.Data;
+                            _framesSent++;
 
-                    AdjustQuality(frame.Data.Length);
+                            AdjustQuality(frame.Data.Length);
+                        }
+                    }
+                    else if (_lastCaptured is not null
+                          && Stopwatch.GetTimestamp() - _lastKeepAlive > Stopwatch.Frequency / 2)
+                    {
+                        _lastKeepAlive = Stopwatch.GetTimestamp();
+                        _sender.Send(_lastCaptured);
+                    }
                 }
-            }
-            else if (_lastCaptured is not null
-                  && Stopwatch.GetTimestamp() - _lastKeepAlive > Stopwatch.Frequency / 2)
-            {
-                // Frame terakhir dikirim ulang dua kali sedetik selama ditahan.
-                //
-                // Komentar di versi sebelumnya menjanjikan hal ini, tetapi
-                // kodenya tidak melakukannya: saat dibekukan loop hanya melewati
-                // pengiriman. Bagi penonton yang sudah menerima frame, tampilan
-                // memang tampak beku dan fiturnya terlihat benar — tetapi klien
-                // yang baru bergabung selama pembekuan tidak menerima apa pun
-                // dan hanya melihat bidang hitam. Laju rendah dipilih supaya
-                // pembekuan tidak memakan bandwidth sebesar siaran normal.
-                _lastKeepAlive = Stopwatch.GetTimestamp();
-                _sender.Send(_lastCaptured);
-            }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Gangguan sesaat pada satu frame tidak boleh mematikan seluruh siaran.
+                }
 
-            nextTick += ticksPerInterval;
-            var remaining = nextTick - Stopwatch.GetTimestamp();
+                nextTick += ticksPerInterval;
+                var remaining = nextTick - Stopwatch.GetTimestamp();
 
-            if (remaining <= 0)
-            {
-                // Tertinggal terlalu jauh: setel ulang tenggat agar tidak
-                // mengejar dengan mengirim beruntun tanpa jeda.
-                nextTick = Stopwatch.GetTimestamp();
-                continue;
-            }
+                if (remaining <= 0)
+                {
+                    nextTick = Stopwatch.GetTimestamp();
+                    continue;
+                }
 
-            try
-            {
-                await Task.Delay(
-                    TimeSpan.FromSeconds(remaining / (double)Stopwatch.Frequency), ct);
+                try
+                {
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(remaining / (double)Stopwatch.Frequency), ct);
+                }
+                catch (OperationCanceledException) { return; }
             }
-            catch (OperationCanceledException) { return; }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Fault = $"Kesalahan siaran: {ex.Message}";
         }
     }
 

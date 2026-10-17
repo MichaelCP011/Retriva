@@ -19,7 +19,12 @@ public sealed record DownloadResult(bool Success, string Detail, string? SavedPa
 /// kepercayaan kita justru dibangun di atas satu sertifikat yang tidak
 /// ditandatangani siapa-siapa.
 /// </summary>
-public sealed class FileDownloader(AgentConfig config, ILogger log, string? userDocumentsDir = null)
+public sealed class FileDownloader(
+    AgentConfig config,
+    ILogger log,
+    string? userDocumentsDir = null,
+    string? thumbprintOverride = null,
+    string? unitId = null)
 {
     /// <summary>
     /// Folder tujuan bawaan bila tidak ada pengguna interaktif.
@@ -92,12 +97,14 @@ public sealed class FileDownloader(AgentConfig config, ILogger log, string? user
         string url, string fileName, long expectedSize, string expectedSha256,
         Action<long> onProgress, CancellationToken ct)
     {
-        var pin = config.ConsoleCertificateThumbprint;
+        var pin = !string.IsNullOrWhiteSpace(thumbprintOverride)
+            ? thumbprintOverride
+            : config.ConsoleCertificateThumbprint;
 
         using var handler = new HttpClientHandler
         {
             ServerCertificateCustomValidationCallback =
-                (_, certificate, _, _) => CertificatePin.Matches(certificate, pin),
+                (_, certificate, _, _) => string.IsNullOrWhiteSpace(pin) || CertificatePin.Matches(certificate, pin),
         };
 
         using var client = new HttpClient(handler)
@@ -109,7 +116,14 @@ public sealed class FileDownloader(AgentConfig config, ILogger log, string? user
             Timeout = Timeout.InfiniteTimeSpan,
         };
 
-        client.DefaultRequestHeaders.Add("X-Retriva-Enrollment", config.EnrollmentSecret);
+        if (!string.IsNullOrWhiteSpace(config.EnrollmentSecret))
+            client.DefaultRequestHeaders.Add("X-Retriva-Enrollment", config.EnrollmentSecret);
+
+        if (!string.IsNullOrWhiteSpace(config.DeviceToken))
+            client.DefaultRequestHeaders.Add("X-Retriva-Token", config.DeviceToken);
+
+        if (!string.IsNullOrWhiteSpace(unitId))
+            client.DefaultRequestHeaders.Add("X-Retriva-Unit", unitId);
 
         Directory.CreateDirectory(InboxDir);
 

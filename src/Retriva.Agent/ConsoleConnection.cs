@@ -14,10 +14,16 @@ namespace Retriva.Agent;
 /// </summary>
 public static class ConsoleConnection
 {
-    public static HubConnection Build(string endpoint, AgentConfig config, string hubPath)
+    public static HubConnection Build(string endpoint, AgentConfig config, string hubPath,
+                                      string? thumbprintOverride = null, int? portOverride = null)
     {
-        var url = $"https://{endpoint}:{config.ConsolePort}{hubPath}";
-        var pin = config.ConsoleCertificateThumbprint;
+        var port = portOverride is > 0 ? portOverride.Value : config.ConsolePort;
+        var url = endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? $"{endpoint.TrimEnd('/')}{hubPath}"
+            : $"https://{endpoint}:{port}{hubPath}";
+        var pin = !string.IsNullOrWhiteSpace(thumbprintOverride)
+            ? thumbprintOverride
+            : config.ConsoleCertificateThumbprint;
 
         return new HubConnectionBuilder()
             .WithUrl(url, options =>

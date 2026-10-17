@@ -8,19 +8,17 @@ namespace Retriva.Shared.Config;
 /// </summary>
 public sealed class AgentConfig
 {
-    /// <summary>Dicoba berurutan: primary dulu, lalu secondary.</summary>
-    public List<string> ConsoleEndpoints { get; set; } = new()
-    {
-        "192.168.1.252",
-        "192.168.1.253",
-    };
+    /// <summary>Dicoba berurutan bila ada; kosong berarti menggunakan penemuan dinamis beacon.</summary>
+    public List<string> ConsoleEndpoints { get; set; } = [];
 
     public int ConsolePort { get; set; } = 8443;
     public string EnrollmentSecret { get; set; } = string.Empty;
-    /// <summary>Sidik jari SHA-256 sertifikat konsol; menolak admin palsu.</summary>
+    /// <summary>Sidik jari SHA-256 sertifikat konsol; kosong bila penemuan dinamis beacon.</summary>
     public string ConsoleCertificateThumbprint { get; set; } = string.Empty;
     /// <summary>Diisi setelah pendaftaran pertama berhasil.</summary>
     public string? DeviceToken { get; set; }
+    /// <summary>Token perangkat per lab (berdasarkan sidik jari sertifikat lab), memungkinkan roaming.</summary>
+    public Dictionary<string, string> LabTokens { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>
     /// Memaksa nama unit, mengalahkan nama yang diberikan koordinator.
     ///

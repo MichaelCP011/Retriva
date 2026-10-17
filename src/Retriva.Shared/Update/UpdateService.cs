@@ -70,7 +70,7 @@ public static class UpdateService
                     {
                         downloadUrl = asset.TryGetProperty("browser_download_url", out var dl) ? dl.GetString() : null;
                         assetSize = asset.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0;
-                        if (assetName.Equals("RetrivaSetup.exe", StringComparison.OrdinalIgnoreCase)) break;
+                        if (assetName.StartsWith("RetrivaSetup", StringComparison.OrdinalIgnoreCase)) break;
                     }
                 }
             }
@@ -96,7 +96,70 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// Mengunduh installer baru ke folder sementara dengan pelaporan kemajuan.
+    /// Direktori penyimpanan berkas pembaruan bersama di ProgramData.
+    /// Dapat diakses oleh service sistem (Agent) maupun aplikasi pengguna (Admin & Client).
+    /// </summary>
+    public static string GetUpdatesDirectory()
+    {
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Retriva",
+            "updates");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>
+    /// Jalur berkas installer untuk versi tertentu di folder staging.
+    /// </summary>
+    public static string GetStagingPath(string version)
+    {
+        return Path.Combine(GetUpdatesDirectory(), $"RetrivaSetup-{version}.exe");
+    }
+
+    /// <summary>
+    /// Memeriksa apakah berkas installer versi baru sudah selesai diunduh dan siap dipasang.
+    /// </summary>
+    public static bool HasPendingUpdate(string version, out string installerPath)
+    {
+        installerPath = GetStagingPath(version);
+        if (!File.Exists(installerPath)) return false;
+
+        try
+        {
+            var info = new FileInfo(installerPath);
+            // Installer utuh berukuran puluhan megabyte (> 5 MB)
+            return info.Length > 5 * 1024 * 1024;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Mengunduh paket pembaruan ke folder staging di latar belakang.
+    /// </summary>
+    public static async Task<string?> DownloadUpdateInBackgroundAsync(
+        UpdateInfo update,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var staging = GetStagingPath(update.Version);
+        if (HasPendingUpdate(update.Version, out _)) return staging;
+
+        try
+        {
+            return await DownloadInstallerAsync(update.DownloadUrl, staging, progress, cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Mengunduh installer baru ke folder target dengan pelaporan kemajuan.
     /// </summary>
     public static async Task<string> DownloadInstallerAsync(
         string downloadUrl,
@@ -139,22 +202,30 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// Menjalankan installer pembaruan secara senyap (silent) di latar belakang.
+    /// Menjalankan installer pembaruan secara senyap (silent) di latar belakang dengan flag --update.
+    /// Installer akan menimpa berkas lama dan memulai ulang layanan/aplikasi tanpa meminta konfirmasi.
     /// </summary>
     public static bool ApplySilentInstall(string installerPath, string role)
     {
         if (!File.Exists(installerPath)) return false;
 
-        var startInfo = new ProcessStartInfo
+        try
         {
-            FileName = installerPath,
-            Arguments = $"--silent --role {role}",
-            UseShellExecute = true,
-            CreateNoWindow = true,
-            Verb = "runas" // Minta hak administrator bila perlu
-        };
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = $"--silent --role {role} --update",
+                UseShellExecute = true,
+                CreateNoWindow = true,
+                Verb = Environment.UserInteractive ? "runas" : "", // Minta admin jika dijalankan dari sesi pengguna
+            };
 
-        var process = Process.Start(startInfo);
-        return process != null;
+            var process = Process.Start(startInfo);
+            return process != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

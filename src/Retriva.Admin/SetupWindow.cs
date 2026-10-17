@@ -31,9 +31,12 @@ public sealed class SetupWindow : ChromeWindow
 
     private readonly RadioButton _asSuperadmin;
     private readonly TextBox _name;
+    private readonly TextBox _labName;
+    private readonly StackPanel _labNameWrap;
     private readonly TextBlock _problem;
+    private readonly ConsoleConfig _consoleConfig;
 
-    public SetupWindow(PanelConfig panel) : base("Retriva", "Penyiapan", "admin")
+    public SetupWindow(PanelConfig panel, ConsoleConfig config) : base("Retriva", "Penyiapan", "admin")
     {
         // Dialog penyiapan tidak dimaksimalkan: isinya satu pertanyaan, dan
         // jendela selebar layar untuk satu pertanyaan terasa seperti aplikasi
@@ -41,8 +44,10 @@ public sealed class SetupWindow : ChromeWindow
         WindowState = WindowState.Normal;
         ResizeMode = ResizeMode.NoResize;
         Width = 560;
-        Height = 430;
+        Height = 490;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        _consoleConfig = config;
 
         _asSuperadmin = Radio("Mesin ini yang menjalankan lab",
             "PC Asisten. Membuka jaringan lab, menyimpan data dan sertifikat, "
@@ -52,12 +57,20 @@ public sealed class SetupWindow : ChromeWindow
             "Laptop dosen atau asisten. Penautannya dilakukan nanti dari dalam "
           + "aplikasi, di layar Panel admin.");
 
+        var (labWrap, labBox) = Field("Nama lab superadmin", string.IsNullOrWhiteSpace(config.LabName) ? "Laboratorium Information Retrieval" : config.LabName,
+            "Nama laboratorium yang dikelola mesin ini (contoh: LAB Jaringan, LAB Basis Data).");
+        _labNameWrap = labWrap;
+        _labName = labBox;
+
         var (nameWrap, nameBox) = Field("Nama panel ini", panel.DisplayName,
             "Nama inilah yang dilihat asisten saat menyetujui, dan yang muncul "
           + "di layar mahasiswa.");
 
         _name = nameBox;
         _asSuperadmin.IsChecked = true;
+
+        _asSuperadmin.Checked += (_, _) => _labNameWrap.Visibility = Visibility.Visible;
+        asPanel.Checked += (_, _) => _labNameWrap.Visibility = Visibility.Collapsed;
 
         _problem = new TextBlock
         {
@@ -88,6 +101,7 @@ public sealed class SetupWindow : ChromeWindow
           + "atau menyambung ke mesin yang sudah melakukannya."));
         body.Children.Add(_asSuperadmin);
         body.Children.Add(asPanel);
+        body.Children.Add(_labNameWrap);
         body.Children.Add(nameWrap);
         body.Children.Add(_problem);
         body.Children.Add(confirm);
@@ -101,6 +115,18 @@ public sealed class SetupWindow : ChromeWindow
 
     private void Confirm(PanelConfig panel)
     {
+        var isSuper = _asSuperadmin.IsChecked == true;
+        if (isSuper)
+        {
+            var labName = _labName.Text.Trim();
+            if (labName.Length == 0)
+            {
+                Fail("Nama lab superadmin tidak boleh kosong.");
+                return;
+            }
+            _consoleConfig.LabName = labName;
+        }
+
         var displayName = _name.Text.Trim();
         if (displayName.Length == 0)
         {
@@ -109,7 +135,7 @@ public sealed class SetupWindow : ChromeWindow
         }
 
         panel.DisplayName = displayName;
-        panel.IsSuperadmin = _asSuperadmin.IsChecked == true;
+        panel.IsSuperadmin = isSuper;
 
         DialogResult = true;
         Close();
